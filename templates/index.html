@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>局域网数据控制面板（自动刷新）</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f4; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); display: grid; grid-template-columns: 1fr; gap: 20px; }
+        h1 { color: #333; }
+        .status { padding: 15px; border-radius: 8px; margin: 20px 0; font-size: 18px; transition: all 0.5s; }
+        .online { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .offline { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .log { background: #eee; padding: 10px; height: 400px; overflow-y: auto; font-family: monospace; font-size: 14px; }
+        .info { color: #666; font-size: 14px; }
+        .auto-refresh { color: #28a745; font-weight: bold; }
+        .joystick-container { display: flex; justify-content: space-around; margin: 20px 0; }
+        .joystick { position: relative; width: 150px; height: 150px; background: #ddd; border-radius: 50%; }
+        .joystick-handle { position: absolute; width: 50px; height: 50px; background: #007bff; border-radius: 50%; transform: translate(-50%, -50%); }
+        .state-control { padding: 15px; background: #f9f9f9; border-radius: 8px; text-align: center; }
+        .state-control select { padding: 8px; font-size: 16px; }
+        .state-control button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px; }
+        .state-control button:hover { background: #0056b3; }
+        .state-control button:disabled { background: #ccc; cursor: not-allowed; }
+        .state-err { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <h1>局域网数据控制面板</h1>
+        <p class="info"><span class="auto-refresh">● 自动实时刷新中（200Hz）</span></p>
+        
+        <div id="status" class="status offline">
+            <strong>设备状态：</strong>加载中...<br>
+            <strong>最后更新：</strong><span id="last_seen">从未</span>
+        </div>
+
+        <!-- 遥杆栏目 -->
+        <div class="joystick-container">
+            <div>
+                <h3>左遥杆</h3>
+                <canvas id="left-joystick" class="joystick" width="150" height="150"></canvas>
+                <p id="left-value">X: 0, Y: 0</p>
+            </div>
+            <div>
+                <h3>右遥杆</h3>
+                <canvas id="right-joystick" class="joystick" width="150" height="150"></canvas>
+                <p id="right-value">X: 0, Y: 0</p>
+            </div>
+        </div>
+
+        <!-- 状态切换控件 -->
+        <div class="state-control">
+            <h3>机器人运行状态</h3>
+            <p>当前状态: <span id="current-state"></span></p>
+            <select id="state-select"></select>
+            <button id="switch-state">切换</button>
+            <div id="state-error" style="color: red; margin-top: 10px;"></div>
+        </div>
+
+        <!-- 合并消息日志：可折叠 -->
+        <details>
+            <summary>消息日志（点击展开/折叠）</summary>
+            <div id="log" class="log">正在加载日志...</div>
+        </details>
+        
+        <div class="info">
+            当前时间：<span id="now"></span> | TCP 监听：8888 | UDP 监听：8889
+        </div>
+    </div>
+
+    <script>
+        // 全局变量：遥杆状态
+        let leftJoystick = { x: 0, y: 0, prevX: 0, prevY: 0 };
+        let rightJoystick = { x: 0, y: 0, prevX: 0, prevY: 0 };
+        let previousRobotState = null;  // 新增：跟踪上一个状态以避免闪烁
+
+        // 初始化遥杆（保持不变）
+        function initJoystick(canvasId, side) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            const radius = canvas.width / 2;
+            let isDragging = false;
+
+            function drawJoystick(x, y) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.beginPath();
+                ctx.arc(radius, radius, radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#ddd';
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(radius + x * radius, radius - y * radius, radius / 3, 0, Math.PI * 2);
+                ctx.fillStyle = '#007bff';
+                ctx.fill();
+            }
+
+            function updatePosition(e) {
+                if (!isDragging) return;
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches ? e.touches[0] : e;
+                let dx = (touch.clientX - rect.left - radius) / radius;
+                let dy = (rect.bottom - touch.clientY - radius) / radius;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > 1) {
+                    dx /= dist;
+                    dy /= dist;
+                }
+                const joystick = side === 'left' ? leftJoystick : rightJoystick;
+                joystick.x = dx;
+                joystick.y = dy;
+                drawJoystick(dx, dy);
+                document.getElementById(`${side}-value`).textContent = `X: ${dx.toFixed(2)}, Y: ${dy.toFixed(2)}`;
+            }
+
+            function resetJoystick() {
+                const joystick = side === 'left' ? leftJoystick : rightJoystick;
+                joystick.x = 0;
+                joystick.y = 0;
+                drawJoystick(0, 0);
+                document.getElementById(`${side}-value`).textContent = `X: 0, Y: 0`;
+                isDragging = false;
+            }
+
+            const mouseMoveHandler = (e) => updatePosition(e);
+            const mouseUpHandler = () => {
+                if (isDragging) resetJoystick();
+                document.removeEventListener('mousemove', mouseMoveHandler);
+                document.removeEventListener('mouseup', mouseUpHandler);
+            };
+
+            canvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                updatePosition(e);
+                document.addEventListener('mousemove', mouseMoveHandler);
+                document.addEventListener('mouseup', mouseUpHandler);
+            });
+
+            const touchMoveHandler = (e) => {
+                updatePosition(e);
+                e.preventDefault();
+            };
+            const touchEndHandler = () => {
+                if (isDragging) resetJoystick();
+                document.removeEventListener('touchmove', touchMoveHandler);
+                document.removeEventListener('touchend', touchEndHandler);
+            };
+
+            canvas.addEventListener('touchstart', (e) => {
+                isDragging = true;
+                updatePosition(e);
+                e.preventDefault();
+                document.addEventListener('touchmove', touchMoveHandler);
+                document.addEventListener('touchend', touchEndHandler);
+            });
+
+            drawJoystick(0, 0);
+        }
+
+
+        initJoystick('left-joystick', 'left');
+        initJoystick('right-joystick', 'right');
+
+        // 自动刷新函数（优化状态更新）
+        async function updateData() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+
+                // 更新设备状态（保持不变）
+                const statusDiv = document.getElementById('status');
+                if (data.status.online) {
+                    statusDiv.className = 'status online';
+                    statusDiv.innerHTML = `
+                        <strong>设备状态：</strong>在线<br>
+                        <strong>最后更新：</strong>${data.status.last_seen || '未知'}<br>
+                        <strong>最新信息：</strong>${data.status.info || '无'}
+                    `;
+                } else {
+                    statusDiv.className = 'status offline';
+                    statusDiv.innerHTML = `
+                        <strong>设备状态：</strong>离线<br>
+                        <strong>最后更新：</strong>${data.status.last_seen || '从未'}<br>
+                        <strong>最新信息：</strong>${data.status.info || '无'}
+                    `;
+                }
+
+                // 更新日志（保持不变）
+                const logDiv = document.getElementById('log');
+                if (data.messages && data.messages.length > 0) {
+                    logDiv.innerHTML = data.messages.join('<br>');
+                    logDiv.scrollTop = logDiv.scrollHeight;
+                } else {
+                    logDiv.innerHTML = '（暂无消息）';
+                }
+
+                document.getElementById('now').textContent = data.timestamp;
+
+                // 更新机器人状态控件（优化：仅状态变化时更新选项）
+                const currentState = data.status.robot_state;
+                const currentStateSpan = document.getElementById('current-state');
+                currentStateSpan.textContent = currentState;
+                if (currentState === 'err') {
+                    currentStateSpan.className = 'state-err';
+                    document.getElementById('state-select').disabled = true;
+                    document.getElementById('switch-state').disabled = true;
+                } else {
+                    currentStateSpan.className = '';
+                    document.getElementById('state-select').disabled = false;
+                    document.getElementById('switch-state').disabled = false;
+                    if (currentState !== previousRobotState) {
+                        updateStateOptions(currentState);
+                        previousRobotState = currentState;
+                    }
+                }
+
+                // 发送遥杆值（保持不变）
+                // ... (原有遥杆发送代码，省略)
+                if (leftJoystick.x !== leftJoystick.prevX || leftJoystick.y !== leftJoystick.prevY) {
+                    await fetch('/api/send_joystick', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ side: 'left', x: leftJoystick.x.toFixed(2), y: leftJoystick.y.toFixed(2) })
+                    });
+                    leftJoystick.prevX = leftJoystick.x;
+                    leftJoystick.prevY = leftJoystick.y;
+                }
+
+                if (rightJoystick.x !== rightJoystick.prevX || rightJoystick.y !== rightJoystick.prevY) {
+                    await fetch('/api/send_joystick', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ side: 'right', x: rightJoystick.x.toFixed(2), y: rightJoystick.y.toFixed(2) })
+                    });
+                    rightJoystick.prevX = rightJoystick.x;
+                    rightJoystick.prevY = rightJoystick.y;
+                }
+
+            } catch (err) {
+                console.error("获取数据失败:", err);
+                document.getElementById('log').innerHTML += '<br><span style="color:red;">[错误] 连接失败，正在重试...</span>';
+            }
+        }
+
+        // 根据当前状态动态更新选项（保持不变）
+        function updateStateOptions(currentState) {
+            const select = document.getElementById('state-select');
+            select.innerHTML = '';
+            const allowed = {
+                'init': ['default'],
+                'default': ['init', 'rl'],
+                'rl': ['init', 'default']
+            }[currentState] || [];
+
+            allowed.forEach(state => {
+                const option = document.createElement('option');
+                option.value = state;
+                option.textContent = state;
+                select.appendChild(option);
+            });
+        }
+
+        // 切换状态事件（保持不变）
+        document.getElementById('switch-state').addEventListener('click', async () => {
+            const select = document.getElementById('state-select');
+            const newState = select.value;
+            const errorDiv = document.getElementById('state-error');
+            errorDiv.textContent = '';
+
+            try {
+                const response = await fetch('/api/set_state', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ new_state: newState })
+                });
+
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+
+                // 成功后刷新数据
+                await updateData();
+            } catch (err) {
+                // errorDiv.textContent = `切换失败: ${err.message}`;
+            }
+        });
+
+        // 200Hz 刷新
+        setInterval(updateData, 5);
+
+        // 页面加载后立即更新
+        window.onload = updateData;
+    </script>
+</body>
+</html>

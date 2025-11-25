@@ -1,0 +1,1 @@
+colcon build --packages-select communication --cmake-args -DUSE_BACKEND=TensorRT &&source install/setup.bash&& colcon build --cmake-args -DUSE_BACKEND=TensorRT

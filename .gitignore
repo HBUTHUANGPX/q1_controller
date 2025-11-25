@@ -1,0 +1,14 @@
+build/*
+install/*
+log/*
+.vscode/*
+
+src/test/*
+src/hipnuc_gnss/*
+src/hipnuc_imu/*
+src/hipnuc_lib_package/*
+src/application/*
+src/communication/*
+src/device_hal/*
+
+src/NIIC_ENI_M0_ECO_2.xml

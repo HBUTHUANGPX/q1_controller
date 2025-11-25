@@ -1,0 +1,5 @@
+sensor_msgs/JointState motor_state
+geometry_msgs/Vector3 root_angular_velocity
+geometry_msgs/Vector3 root_velocity
+geometry_msgs/Vector3 root_position
+geometry_msgs/Quaternion root_quat

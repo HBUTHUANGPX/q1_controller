@@ -1,0 +1,1 @@
+sudo -E bash sudoros2.sh run q1_controller rl_motor

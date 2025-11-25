@@ -1,0 +1,7 @@
+# 请求部分：输入目标状态（使用int32表示状态码）
+int32 target_state  # 目标状态，例如 -1: err, 0: init, 1: default, 10: rl
+
+---
+# 响应部分：输出切换结果
+bool success       # 切换是否成功（true/false）
+string message     # 附加消息，例如"切换成功"或"无效切换"
