@@ -4,8 +4,9 @@
 #include <iostream>  // 用于调试输出（可选）
 #include <stdexcept> // 用于 std::runtime_error
 
-OpenVINOInference::OpenVINOInference(const YAML::Node &config, std::shared_ptr<NetworkIOBase> network_io,std::shared_ptr<MotorManager> motor_manager)
-    : InferenceBase(config, network_io,motor_manager)
+OpenVINOInference::OpenVINOInference(const YAML::Node &config, std::shared_ptr<NetworkIOBase> network_io,
+                                     std::shared_ptr<MotorManager> motor_manager)
+    : InferenceBase(config, network_io, motor_manager)
 {
     // printf("OpenVINOInference: construct function init\r\n");
     LoadModel(policy_path_);
@@ -14,9 +15,108 @@ OpenVINOInference::OpenVINOInference(const YAML::Node &config, std::shared_ptr<N
 
 void OpenVINOInference::LoadModel(const std::string &model_path)
 {
-    // printf("OpenVINOInference: LoadModel function start \r\n");
     model_ = core_.read_model(model_path);
 
+    // 获取动态名称和形状
+    const auto &input_names = network_io_->GetInputNames();
+    const auto &output_names = network_io_->GetOutputNames();
+    const auto &config_input_shapes = network_io_->GetInputShapes();
+    const auto &config_output_shapes = network_io_->GetOutputShapes();
+
+    // 验证输入数量
+    if (model_->inputs().size() != input_names.size())
+    {
+        throw std::runtime_error("输入数量不匹配: 模型有 " + std::to_string(model_->inputs().size()) +
+                                 " 个输入，但 YAML 配置有 " + std::to_string(input_names.size()) + " 个。");
+    }
+
+    // 循环验证每个输入
+    for (size_t i = 0; i < input_names.size(); ++i)
+    {
+        std::string name = input_names[i];
+        auto input = model_->input(name);
+        auto ps = input.get_partial_shape();
+        std::cout << "模型输入 " << name << " 形状: " << ps.to_string() << std::endl;
+
+        // 验证 rank
+        if (static_cast<size_t>(ps.rank().get_length()) != config_input_shapes[i].size())
+        {
+            throw std::runtime_error("输入 " + name + " rank 不匹配: 模型为 " + std::to_string(ps.rank().get_length()) +
+                                     "，配置为 " + std::to_string(config_input_shapes[i].size()) + "。");
+        }
+
+        // 验证维度（忽略动态 -1）
+        for (size_t j = 0; j < config_input_shapes[i].size(); ++j)
+        {
+            int64_t config_dim = static_cast<int64_t>(config_input_shapes[i](j));
+            auto model_dim = ps[j];
+            if (model_dim.is_static() && model_dim.get_length() != config_dim && config_dim >= 0)
+            {
+                throw std::runtime_error("输入 " + name + " 维度 " + std::to_string(j) + " 不匹配: 配置为 " +
+                                         std::to_string(config_dim) + "，模型为 " +
+                                         std::to_string(model_dim.get_length()) + "。");
+            }
+        }
+    }
+
+    // 验证输出数量
+    if (model_->outputs().size() != output_names.size())
+    {
+        std::cout << "WARNING: 输出数量不匹配: 模型有 " << model_->outputs().size() << " 个输出，但 YAML 配置有 "
+                  << output_names.size() << " 个。请检查模型。" << std::endl;
+    }
+
+    // 循环验证每个输出
+    for (size_t i = 0; i < output_names.size(); ++i)
+    {
+        std::string name = output_names[i];
+        auto output = model_->output(name);
+        auto ps = output.get_partial_shape();
+        std::cout << "模型输出 " << name << " 形状: " << ps.to_string() << std::endl;
+
+        // 验证 rank
+        if (static_cast<size_t>(ps.rank().get_length()) != config_output_shapes[i].size())
+        {
+            throw std::runtime_error("输出 " + name + " rank 不匹配: 模型为 " + std::to_string(ps.rank().get_length()) +
+                                     "，配置为 " + std::to_string(config_output_shapes[i].size()) + "。");
+        }
+
+        // 验证维度（忽略动态 -1）
+        for (size_t j = 0; j < config_output_shapes[i].size(); ++j)
+        {
+            int64_t config_dim = static_cast<int64_t>(config_output_shapes[i](j));
+            auto model_dim = ps[j];
+            if (model_dim.is_static() && model_dim.get_length() != config_dim && config_dim >= 0)
+            {
+                throw std::runtime_error("输出 " + name + " 维度 " + std::to_string(j) + " 不匹配: 配置为 " +
+                                         std::to_string(config_dim) + "，模型为 " +
+                                         std::to_string(model_dim.get_length()) + "。");
+            }
+        }
+    }
+
+    // 动态 reshape（支持动态维度，使用配置形状替换 -1）
+    std::map<std::string, ov::PartialShape> reshape_map;
+    for (size_t i = 0; i < input_names.size(); ++i)
+    {
+        std::string name = input_names[i];
+        std::vector<ov::Dimension> dims;
+        for (Eigen::Index j = 0; j < config_input_shapes[i].size(); ++j)
+        {
+            dims.emplace_back(static_cast<int64_t>(config_input_shapes[i](j)));
+        }
+        reshape_map[name] = ov::PartialShape(dims);
+    }
+    model_->reshape(reshape_map);
+
+    model_->validate_nodes_and_infer_types();
+
+    compiled_model_ = core_.compile_model(model_, "CPU");
+    infer_request_ = compiled_model_.create_infer_request();
+
+    // printf("OpenVINOInference: LoadModel function start \r\n");
+    model_ = core_.read_model(model_path);
+#if 0
     // 获取配置的输入/输出形状
     const auto &_input_shapes = network_io_->GetInputShapes();
     const auto &_output_shapes = network_io_->GetOutputShapes();
@@ -113,41 +213,38 @@ void OpenVINOInference::LoadModel(const std::string &model_path)
     compiled_model_ = core_.compile_model(model_, "CPU");
     infer_request_ = compiled_model_.create_infer_request();
     // printf("OpenVINOInference: LoadModel function process ok \r\n");
+#endif
 }
 
 std::map<std::string, Eigen::MatrixXf> OpenVINOInference::Infer(const std::vector<Eigen::MatrixXf> &inputs)
 {
-    // printf("OpenVINOInference: get input_ports \r\n");
-    auto input_ports = compiled_model_.inputs();
-    if (input_ports.size() != inputs.size())
+    const auto &input_names = network_io_->GetInputNames();
+    if (inputs.size() != input_names.size())
     {
-        throw std::runtime_error("Input count mismatch.");
+        throw std::runtime_error("输入数量不匹配。");
     }
 
-    // 设置输入
-    // printf("OpenVINOInference: set input tensor \r\n");
+    // 设置输入（使用名称查找 port）
     for (size_t i = 0; i < inputs.size(); ++i)
     {
-        ov::Tensor tensor = EigenToOVTensor(inputs[i], input_ports[i].get_shape());
-        infer_request_.set_tensor(input_ports[i], tensor);
+        std::string name = input_names[i];
+        auto port = compiled_model_.input(name);
+        ov::Tensor tensor = EigenToOVTensor(inputs[i], port.get_shape());
+        infer_request_.set_tensor(port, tensor);
     }
-    // printf("OpenVINOInference: infer \r\n");
+
     // 执行推理
     infer_request_.infer();
 
-    // 获取输出
-    // printf("OpenVINOInference: get outputs \r\n");
-    auto output_ports = compiled_model_.outputs();
+    // 获取输出（动态提取所有输出）
     std::map<std::string, Eigen::MatrixXf> outputs;
-    // printf("OpenVINOInference: get outputs tensor \r\n");
-    for (const auto &port : output_ports)
+    const auto &output_names = network_io_->GetOutputNames();
+    for (const auto &name : output_names)
     {
-        std::string name = port.get_any_name();
+        auto port = compiled_model_.output(name);
         ov::Tensor tensor = infer_request_.get_tensor(port);
         outputs[name] = OVTensorToEigen(tensor);
     }
-    // printf("OpenVINOInference: Infer has done \r\n");
-
     return outputs;
 }
 
@@ -163,20 +260,23 @@ Eigen::MatrixXf OpenVINOInference::OVTensorToEigen(const ov::Tensor &tensor)
 {
     const float *data = tensor.data<const float>();
     ov::Shape shape = tensor.get_shape();
-    if (shape.size() < 2)
+    if (shape.empty())
     {
-        throw std::runtime_error("Tensor rank must be at least 2 (batch dimension first).");
+        throw std::runtime_error("无效的输出形状: 空形状。");
     }
 
-    // 计算行数（batch，通常为1）和列数（剩余维度的乘积）
-    Eigen::Index rows = static_cast<Eigen::Index>(shape[0]);
-    Eigen::Index cols = 1;
+    // batch 维度（第一个维度）
+    Eigen::Index batch = static_cast<Eigen::Index>(shape[0]);
+
+    // 计算剩余维度的乘积作为 flattened columns
+    Eigen::Index flattened = 1;
     for (size_t i = 1; i < shape.size(); ++i)
     {
-        cols *= static_cast<Eigen::Index>(shape[i]);
+        flattened *= static_cast<Eigen::Index>(shape[i]);
     }
 
-    // 映射为MatrixXf并转换为MatrixXf
-    Eigen::MatrixXf result = Eigen::Map<const Eigen::MatrixXf>(data, rows, cols).cast<float>();
+    // 映射为 MatrixXf
+    Eigen::MatrixXf result(batch, flattened);
+    std::copy(data, data + batch * flattened, result.data());
     return result;
 }

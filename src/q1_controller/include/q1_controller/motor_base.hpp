@@ -26,8 +26,8 @@ class MotorBase
      * @param max_torque 最大扭矩。
      * @param default_pos 默认位置。
      */
-    MotorBase(const std::string &name, float kp, float kd, float max_torque, float default_pos, int id, int ec_id,
-              int direction);
+    MotorBase(const std::string &name, float kp, float kd, float max_torque, float nominal_pos, float urdf_offset,
+              int id, int ec_id, int direction);
 
     /**
      * @brief 虚析构函数，支持子类扩展。
@@ -59,14 +59,22 @@ class MotorBase
     }
 
     // 获取默认位置
-    float getDefaultPos() const
+    float getOffsetPos() const
     {
-        return default_pos_;
+        return offset_pos_;
+    }
+    float getNominalPos() const
+    {
+        return nominal_pos_;
+    }
+    float getURDFOffset() const
+    {
+        return urdf_offset_;
     }
 
     float getCurrentPos() const
     {
-        return pos_-default_pos_;
+        return pos_;
     }
     float getCurrentVel() const
     {
@@ -85,15 +93,25 @@ class MotorBase
         return ec_id_;
     }
 
-    void setCurrentPos(float value)
+    void writeCurrentPos(float value)
+    {
+        pos_ = value * direction_ - offset_pos_;
+    }
+
+    void rewriteCurrentPos(float value)
     {
         pos_ = value * direction_;
     }
-    void setCurrentVel(float value)
+
+    void writeCurrentVel(float value)
     {
         vel_ = value * direction_;
     }
-    void setCurrentFFT(float value)
+    void rewriteCurrentVel(float value)
+    {
+        vel_ = value * direction_;
+    }
+    void writeCurrentFFT(float value)
     {
         fft_ = value * direction_;
     }
@@ -116,9 +134,9 @@ class MotorBase
     void setTargetPos(float value) // 将action数据给入
     {
 #if defined(USE_TENSORRT)
-        motor_data.pos = value * direction_ + default_pos_; // 对于实机，此时需要进行方向转换
+        motor_data.pos = value * direction_ + offset_pos_; // 对于实机，此时需要进行方向转换
 #else
-        target_pos_ = value + default_pos_;
+        target_pos_ = value + offset_pos_;
 #endif
     }
     void resetTargetPos(float value)
@@ -136,12 +154,12 @@ class MotorBase
     }
 #endif
   protected:
-    std::string name_;      // 电机名称
-    float kp_;              // P增益
-    float kd_;              // D增益
-    float max_torque_;      // 最大扭矩
-    float default_pos_;     // 默认位置
-    float pos_, vel_, fft_; // 当前 位置、速度、力矩
+    std::string name_;                // 电机名称
+    float kp_;                        // P增益
+    float kd_;                        // D增益
+    float max_torque_;                // 最大扭矩
+    float nominal_pos_, urdf_offset_,offset_pos_; // 默认位置
+    float pos_, vel_, fft_;           // 当前 位置、速度、力矩
     float target_pos_;
     int id_, ec_id_, direction_;
 #if defined(USE_TENSORRT)

@@ -58,7 +58,7 @@ class ObservationComponent
         return offset_;
     }
 
-  protected:
+  protected: // TODO： 清除无用变量
     int dim_;                               // 数据维度（从YAML len读取）
     std::string name_;                      // 组件名称（从YAML键读取）
     float scale_;                          // 数据缩放因子（从YAML scale读取）

@@ -5,11 +5,6 @@
 #include <stdexcept> // 用于 std::runtime_error 异常处理。
 #include <vector>    // 用于形状向量和数据复制。
 
-/**
- * @brief 构造函数，调用基类构造函数并加载模型。
- * 初始化 ONNX Runtime 环境（日志级别为警告，以减少输出）。
- * 基于onnxruntime_cxx_inline.h中的Env构造函数，确保异常安全。
- */
 OnnxInference::OnnxInference(const YAML::Node &config, std::shared_ptr<NetworkIOBase> network_io,
                              std::shared_ptr<MotorManager> motor_manager)
     : InferenceBase(config, network_io, motor_manager),
@@ -21,13 +16,6 @@ OnnxInference::OnnxInference(const YAML::Node &config, std::shared_ptr<NetworkIO
     LoadModel(policy_path_);
 }
 
-/**
- * @brief 加载 ONNX 模型文件。
- * 创建会话选项和会话，验证模型的输入/输出形状与配置匹配。
- * 如果形状不匹配，抛出Ort::Exception异常以确保模型兼容性。
- * 基于onnxruntime_cxx_inline.h中的ThrowOnError，确保所有API调用异常安全。
- * @param model_path 模型路径（如 "policy.onnx"）。
- */
 void OnnxInference::LoadModel(const std::string &model_path)
 {
     // 获取动态名称和形状
@@ -134,14 +122,6 @@ void OnnxInference::LoadModel(const std::string &model_path)
     std::cout << "模型输入输出检验通过。" << std::endl;
 }
 
-/**
- * @brief 执行推理过程。
- * 将输入转换为 ONNX Tensor，运行会话，提取输出并转换为 Eigen 矩阵。
- * 只提取 "actions" 输出，其他输出忽略。
- * 基于onnxruntime_cxx_inline.h中的Run调用，确保输入/输出名称为const char*数组。
- * @param inputs 输入列表（0: obs, 1: time_step）。
- * @return 输出映射，键为 "actions"，值为 Eigen::MatrixXf。
- */
 std::map<std::string, Eigen::MatrixXf> OnnxInference::Infer(const std::vector<Eigen::MatrixXf> &inputs)
 { 
     if (inputs.size() != inputNodeCount)

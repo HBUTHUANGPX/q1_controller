@@ -35,14 +35,16 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
         float kp = params["kp"].as<float>();
         float kd = params["kd"].as<float>();
         float max_torque = params["torque_max"].as<float>();
-        float default_pos = params["default_pos"].as<float>();
+        float nominal_pos = params["nominal_pos"].as<float>();
+        float urdf_offset = params["urdf_offset"].as<float>();
         int id = params["id"].as<int>();
         int ec_id = params["ec_id"].as<int>();
         int direction = params["direction"].as<int>();
 
-        auto motor = std::make_shared<MotorBase>(name, kp, kd, max_torque, default_pos, id, ec_id, direction);
+        auto motor = std::make_shared<MotorBase>(name, kp, kd, max_torque, nominal_pos, urdf_offset, id, ec_id, direction);
         motors_.push_back(motor);
         name_to_index_[name] = index++;
+        std::cout << name << std::endl;
     }
     motors_in_id_ = motors_;
     // 按ID升序排序motors_in_id_
@@ -188,9 +190,9 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
     {
         for (size_t i = 0; i < received_motors.size(); i++)
         {
-            motors_in_id_[i]->setCurrentPos(received_motors[i].pos);
-            motors_in_id_[i]->setCurrentVel(received_motors[i].vel);
-            motors_in_id_[i]->setCurrentFFT(received_motors[i].tor);
+            motors_in_id_[i]->writeCurrentPos(received_motors[i].pos);
+            motors_in_id_[i]->writeCurrentVel(received_motors[i].vel);
+            motors_in_id_[i]->writeCurrentFFT(received_motors[i].tor);
         }
         // sensor_msgs::msg::JointState msg;
         auto msg = std::make_unique<sensor_msgs::msg::JointState>();
@@ -200,7 +202,7 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
         // 现在假设.yaml中的 _ankle_pitch_joint 放的是A电机，也就是theta
         // 现在假设.yaml中的 _ankle_roll_joint 放的是B电机，也就是phi
         // 上A下B
-
+        // TODO： 真机的并联机构的零点不是水平的
         std::shared_ptr<MotorBase> L_ankle_pitch_joint_ = getMotorByName("L_ankle_pitch_joint");
         std::shared_ptr<MotorBase> L_ankle_roll_joint_ = getMotorByName("L_ankle_roll_joint");
         std::shared_ptr<MotorBase> R_ankle_pitch_joint_ = getMotorByName("R_ankle_pitch_joint");
@@ -221,14 +223,14 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
             avm_.velocity_mapping(L_phi_, L_theta_, fk_L_ankle(0), fk_L_ankle(1), L_phi_dot_, L_theta_dot_);
         Eigen::Vector2f vm_R_ankle =
             avm_.velocity_mapping(R_phi_, R_theta_, fk_R_ankle(0), fk_R_ankle(1), R_phi_dot_, R_theta_dot_);
-        L_ankle_pitch_joint_->setCurrentPos(fk_L_ankle(0) - ankle_pitch_add_angle_ * 0);
+        L_ankle_pitch_joint_->rewriteCurrentPos(fk_L_ankle(0) - ankle_pitch_add_angle_ * 0);
         L_ankle_pitch_joint_->setCurrentVel(vm_L_ankle(0));
-        L_ankle_roll_joint_->setCurrentPos(-fk_L_ankle(1));
+        L_ankle_roll_joint_->rewriteCurrentPos(-fk_L_ankle(1));
         L_ankle_roll_joint_->setCurrentVel(-vm_L_ankle(1));
 
-        R_ankle_pitch_joint_->setCurrentPos(fk_R_ankle(0) + ankle_pitch_add_angle_ * 0);
+        R_ankle_pitch_joint_->rewriteCurrentPos(fk_R_ankle(0) + ankle_pitch_add_angle_ * 0);
         R_ankle_pitch_joint_->setCurrentVel(vm_R_ankle(0));
-        R_ankle_roll_joint_->setCurrentPos(fk_R_ankle(1));
+        R_ankle_roll_joint_->rewriteCurrentPos(fk_R_ankle(1));
         R_ankle_roll_joint_->setCurrentVel(vm_R_ankle(1));
 
         for (size_t i = 0; i < motors_.size(); i++)
@@ -373,7 +375,7 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
         cmd.ff_effort = 0.0; // 默认0
         msg->commands.push_back(cmd);
 #if defined(USE_TENSORRT)
-        control_data.at(i) = motors_in_id_[i]->getMotorInfo();
+        control_data.at(i) = motors_in_id_[i]->getMotorInfo();//TODO： 检查冲突
 #endif
     }
     target_pos_pub_->publish(std::move(msg));
@@ -408,7 +410,7 @@ std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero
  * @brief JointState回调函数实现。
  */
 void MotorManager::jointCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
-{
+{ // TODO ：关于default pos的处理需要补上
     if (msg->position.size() != motors_.size() || msg->velocity.size() != motors_.size())
     {
         RCLCPP_WARN(node_->get_logger(), "JointState size mismatch.");
@@ -425,10 +427,11 @@ void MotorManager::jointCallback(const sensor_msgs::msg::JointState::SharedPtr m
     for (const auto &name : joint_index_in_need)
     {
         auto it = msg_name_to_index.find(name);
+        auto name_to_index = name_to_index_.find(name);
         if (it != msg_name_to_index.end())
         {
             size_t j = it->second;
-            current_pos_[i] = msg->position[j];
+            current_pos_[i] = msg->position[j] - motors_[name_to_index->second]->getNominalPos();
             current_vel_[i] = msg->velocity[j];
         }
         else

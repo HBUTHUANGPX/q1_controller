@@ -106,6 +106,10 @@ Eigen::VectorXf DataStore::GetCmdVel() const
 Eigen::Vector3f DataStore::get_gravity_orientation() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    // float qw = 1+0*robot_quat_.w();
+    // float qx = 0*robot_quat_.x();
+    // float qy = 0*robot_quat_.y();
+    // float qz = 0*robot_quat_.z();
     float qw = robot_quat_.w();
     float qx = robot_quat_.x();
     float qy = robot_quat_.y();

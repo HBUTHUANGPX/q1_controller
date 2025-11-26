@@ -4,10 +4,10 @@
 /**
  * @brief MotorBase构造函数实现。
  */
-MotorBase::MotorBase(const std::string &name, float kp, float kd, float max_torque, float default_pos, int id,
-                     int ec_id,int direction)
-    : name_(name), kp_(kp), kd_(kd), max_torque_(max_torque), default_pos_(default_pos), id_(id), pos_(0), vel_(0),
-      fft_(0), ec_id_(ec_id),direction_(direction)
+MotorBase::MotorBase(const std::string &name, float kp, float kd, float max_torque, float nominal_pos,
+                     float urdf_offset, int id, int ec_id, int direction)
+    : name_(name), kp_(kp), kd_(kd), max_torque_(max_torque), nominal_pos_(nominal_pos), urdf_offset_(urdf_offset),
+      id_(id), pos_(0), vel_(0), fft_(0), ec_id_(ec_id), direction_(direction)
 {
 #if defined(USE_TENSORRT)
     motor_data.id = ec_id_;
@@ -17,4 +17,5 @@ MotorBase::MotorBase(const std::string &name, float kp, float kd, float max_torq
     motor_data.vel = 0;
     motor_data.tor = 0;
 #endif
+    offset_pos_ = nominal_pos_ + urdf_offset_;
 }
