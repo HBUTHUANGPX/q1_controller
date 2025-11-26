@@ -16,41 +16,63 @@ enum class FSM_state : int
 
 class FSM_manager
 {
-  private:
-    /* data */
-    rclcpp::Subscription<q1_controller::msg::XboxJoy>::SharedPtr joy_sub_; // 关节状态订阅器
-    rclcpp::Node::SharedPtr node_;                                         // ROS节点指针
-    Eigen::Vector3f cmd_3;
-    FSM_state FSM_state_;
-    std::shared_ptr<DataStore> data_store_;
-    rclcpp::TimerBase::SharedPtr state_timer_; // 新增：状态切换定时器
-    // 新增：按键状态变量，用于去抖动
-    bool lt_pressed_; // LT轴 > 0.4
-    bool b_pressed_;  // B按钮 (buttons[1])
-    bool a_pressed_;  // A按钮 (buttons[0])
-    bool start_pressed_;  // start按钮 (buttons[11])
-    bool back_pressed_;  // start按钮 (buttons[11])
-    void stateTransitionCallback();
-    mutable std::mutex mutex_; // 互斥锁，确保线程安全
-
-    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr state_publisher_;  // 状态发布
-    rclcpp::Service<q1_controller::srv::StateTransition>::SharedPtr state_transition_srv_;  // 替换为自定义
-    bool last_transition_success_;  // service 响应结果
-    void stateTransitionServiceCallback(
-        const std::shared_ptr<q1_controller::srv::StateTransition::Request> request,
-        std::shared_ptr<q1_controller::srv::StateTransition::Response> response);
   public:
+    /**
+     * @brief 构造函数FSM_manager，初始化FSM管理器。
+     * @param node ROS节点指针
+     * @param data_store 共享数据存储指针
+     */
     FSM_manager(rclcpp::Node *node, std::shared_ptr<DataStore> data_store);
+
+    /**
+     * @brief 设置FSM状态
+     * @param set_state 要设置的FSM状态
+     */
     void set_FSM_state(FSM_state set_state)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         FSM_state_ = set_state;
     };
+
+    /**
+     * @brief 获取当前FSM状态
+     * @return 当前FSM状态
+     */
     FSM_state get_FSM_state() const
     {
         std::lock_guard<std::mutex> lock(mutex_);
         return FSM_state_;
     }
+
+    /**
+     * @brief 手柄回调函数，处理手柄输入
+     * @param msg 手柄消息指针
+     */
     void joyCallback(const q1_controller::msg::XboxJoy::SharedPtr msg);
+
+  private:
+    /** 数据 */
+    rclcpp::Subscription<q1_controller::msg::XboxJoy>::SharedPtr joy_sub_;  // 关节状态订阅器
+    rclcpp::Node::SharedPtr node_;                                          // ROS节点指针
+    Eigen::Vector3f cmd_3;                                                  // 手柄cmd vel指令
+    FSM_state FSM_state_;                                                   // 当前FSM状态
+    std::shared_ptr<DataStore> data_store_;                                 // 共享数据存储指针
+    rclcpp::TimerBase::SharedPtr state_timer_;                              // 新增：状态切换定时器
+    /** 新增：按键状态变量，用于去抖动 */
+    bool lt_pressed_;                                                       // LT轴 > 0.4
+    bool b_pressed_;                                                        // B按钮 (buttons[1])
+    bool a_pressed_;                                                        // A按钮 (buttons[0])
+    bool start_pressed_;                                                    // start按钮 (buttons[11])
+    bool back_pressed_;                                                     // back按钮 (buttons[10])
+    void stateTransitionCallback();
+    mutable std::mutex mutex_;                                              // 互斥锁，确保线程安全
+
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr state_publisher_;    // 状态发布
+    rclcpp::Service<q1_controller::srv::StateTransition>::SharedPtr state_transition_srv_;  // 替换为自定义
+    bool last_transition_success_;                                          // service 响应结果
+    void stateTransitionServiceCallback(
+        const std::shared_ptr<q1_controller::srv::StateTransition::Request> request,
+        std::shared_ptr<q1_controller::srv::StateTransition::Response> response);
+
 };
 #endif

@@ -47,30 +47,47 @@ class NetworkIOBase
     virtual std::pair<Eigen::VectorXf, std::vector<Eigen::MatrixXf>> ExtractOutputs(
         const std::map<std::string, Eigen::MatrixXf> &raw_outputs) = 0;
 
-    // 获取输入/输出形状，用于验证
+    /**
+     * @brief 获取输入形状列表。
+     * @return 输入形状列表。
+     */
     const std::vector<Eigen::VectorXf> &GetInputShapes() const
     {
         return input_shapes_;
     }
+
+    /**
+     * @brief 获取输出形状列表。
+     * @return 输出形状列表。
+     */
     const std::vector<Eigen::VectorXf> &GetOutputShapes() const
     {
         return output_shapes_;
     }
 
+    /**
+     * @brief 获取输入名称列表。
+     * @return 输入名称列表。
+     */
     const std::vector<std::string> &GetInputNames() const
     {
         return input_names_;
     }
+
+    /**
+     * @brief 获取输出名称列表。
+     * @return 输出名称列表。
+     */
     const std::vector<std::string> &GetOutputNames() const
     {
         return output_names_;
     }
 
   protected:
-    std::vector<Eigen::VectorXf> input_shapes_;
-    std::vector<Eigen::VectorXf> output_shapes_;
-    std::vector<std::string> input_names_;
-    std::vector<std::string> output_names_;
+    std::vector<Eigen::VectorXf> input_shapes_;  // 输入形状列表
+    std::vector<Eigen::VectorXf> output_shapes_; // 输出形状列表
+    std::vector<std::string> input_names_;       // 输入名称列表
+    std::vector<std::string> output_names_;      // 输出名称列表
 };
 
 #endif // NETWORK_IO_HPP

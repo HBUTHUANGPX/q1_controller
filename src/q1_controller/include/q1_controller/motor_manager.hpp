@@ -34,15 +34,22 @@ class MotorManager
      * @brief 构造函数，从YAML加载电机配置。
      * @param node ROS节点指针，用于创建订阅/发布器。
      * @param config YAML节点，包含"motors"部分。
+     * @param data_store 共享数据存储指针。
      */
-    // MotorManager(rclcpp::Node::SharedPtr node, const YAML::Node& config);
     MotorManager(rclcpp::Node *node, const YAML::Node &config, std::shared_ptr<DataStore> data_store);
+
     /**
      * @brief 通过名称获取电机指针。
      * @param name 电机名称。
      * @return 电机共享指针，若不存在返回nullptr。
      */
     std::shared_ptr<MotorBase> getMotorByName(const std::string &name) const;
+
+    /**
+     * @brief 通过名称获取电机指针（按ID顺序）。
+     * @param name 电机名称。
+     * @return 电机共享指针，若不存在返回nullptr。
+     */
     std::shared_ptr<MotorBase> getMotorByName_in_id(const std::string &name) const;
 
     /**
@@ -51,46 +58,83 @@ class MotorManager
      * @return 电机共享指针，若越界返回nullptr。
      */
     std::shared_ptr<MotorBase> getMotorByIndex(size_t index) const;
+
+    /**
+     * @brief 通过ID获取电机指针。
+     * @param ID 电机ID。
+     * @return 电机共享指针，若不存在返回nullptr。
+     */
     std::shared_ptr<MotorBase> getMotorByID(int ID) const;
 
+    /**
+     * @brief 生成关节命令字符串。
+     * @param actions 动作向量（目标位置）。
+     * @param zero_kp 是否将P增益置零。
+     * @param zero_kd 是否将D增益置零。
+     * @return 关节命令字符串。
+     */
     std::string jointCommand(const Eigen::VectorXf &actions,bool zero_kp,bool zero_kd);
+
+    /**
+     * @brief 处理JointState消息，更新当前状态。
+     * @param message JointState消息字符串。
+     * @param from_port 消息来源端口。
+     */
     void jointStateUpdate(const std::string &message, int from_port);
 
     /**
      * @brief 发布目标位置命令。
      * @param actions 动作向量（目标位置）。
+     * @param zero_kp 是否将P增益置零。
+     * @param zero_kd 是否将D增益置零。
      */
     void publishTargetPos(const Eigen::VectorXf &actions,bool zero_kp,bool zero_kd);
 
+    /**
+     * @brief 获取电机位置
+     * @return 电机位置
+     */
     Eigen::VectorXf getCurrentPos()
     {
         return current_pos_;
     };
+
+    /**
+     * @brief 获取电机速度
+     * @return 电机速度
+     */
     Eigen::VectorXf getCurrentVel()
     {
         return current_vel_;
     };
+
+    /**
+     * @brief 查找两个电机列表中的共同电机索引。
+     * @param src 源电机列表。
+     * @param target 目标电机列表。
+     * @return 共同电机在源列表中的索引向量。
+     */
     std::vector<size_t> findMutualIndices(const std::vector<std::shared_ptr<MotorBase>> &src,
                                           const std::vector<std::shared_ptr<MotorBase>> &target) const;
 
   private:
-    std::vector<std::shared_ptr<MotorBase>> motors_, motors_in_id_; // 电机列表，按YAML顺序
-    std::vector<size_t> indices_from_motors,indices_from_motors_in_id;
-    std::map<std::string, size_t> name_to_index_,name_to_index_in_id_;                   // 名称到索引的映射
-    float ankle_pitch_add_angle_;
-    Eigen::VectorXf current_pos_;                                   // 当前位置（从订阅更新）
-    Eigen::VectorXf current_vel_;                                   // 当前速度（从订阅更新）
+    std::vector<std::shared_ptr<MotorBase>> motors_, motors_in_id_;                          // 电机列表，按YAML顺序
+    std::vector<size_t> indices_from_motors, indices_from_motors_in_id;                      // ID索引映射
+    std::map<std::string, size_t> name_to_index_, name_to_index_in_id_;                      // 名称到索引的映射
+    float ankle_pitch_add_angle_;                                                            // 踝关节附加角度偏移
+    Eigen::VectorXf current_pos_;                                                            // 当前位置（从订阅更新）
+    Eigen::VectorXf current_vel_;                                                            // 当前速度（从订阅更新）
 
-    rclcpp::Node::SharedPtr node_;                                                       // ROS节点指针
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;            // 关节状态订阅器
-    rclcpp::Publisher<q1_controller::msg::MultiMotorCommand>::SharedPtr target_pos_pub_; // 目标位置发布器
-    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_recv_pub_,state_ctrl_pub_;          // 目标位置发布器
-    std::shared_ptr<DataStore> data_store_;
-    actual_virtual_map avm_;
-    std::map<std::string, size_t> joint_indices_in_motors;
-    std::vector<std::string> joint_index_in_need;
+    rclcpp::Node::SharedPtr node_;                                                           // ROS节点指针
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;                // 关节状态订阅器
+    rclcpp::Publisher<q1_controller::msg::MultiMotorCommand>::SharedPtr target_pos_pub_;     // 目标位置发布器
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_recv_pub_, state_ctrl_pub_; // 目标位置发布器
+    std::shared_ptr<DataStore> data_store_;                                     // 共享数据存储指针
+    actual_virtual_map avm_;                                                    // 踝关节实际-虚拟映射对象
+    std::map<std::string, size_t> joint_indices_in_motors;                      // joint_index_in_need对应motors_的索引映射
+    std::vector<std::string> joint_index_in_need;                               // 实际需要的关节名称列表
 #if defined(USE_TENSORRT)
-    std::vector<MotorInfo> control_data;
+    std::vector<MotorInfo> control_data;                                  // MotorInfo数据列表
 #endif
 
     /**

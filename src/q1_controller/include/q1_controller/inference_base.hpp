@@ -25,8 +25,9 @@ class InferenceBase
   public:
     /**
      * @brief 构造函数。
-     * @param config_path YAML 配置路径，用于加载参数。
+     * @param config YAML 配置路径，用于加载参数。
      * @param network_io 网络 IO 处理器共享指针。
+     * @param motor_manager Motor 管理器共享指针。
      */
     InferenceBase(const YAML::Node &config, std::shared_ptr<NetworkIOBase> network_io,std::shared_ptr<MotorManager> motor_manager);
 

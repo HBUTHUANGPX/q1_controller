@@ -22,6 +22,7 @@ class ObservationComponent
      * @param dim 数据维度。
      * @param name 组件名称，用于日志或调试。
      * @param scale 数据缩放因子（从YAML读取）。
+     * @param data_store 共享数据存储指针（可选，用于访问最新数据）。
      */
     ObservationComponent(int dim, const std::string &name, float scale = 1.0,
                          std::shared_ptr<DataStore> data_store = nullptr);
@@ -34,25 +35,37 @@ class ObservationComponent
      */
     virtual void Update(Eigen::MatrixXf &obs, float time_step = 0.0) = 0;
 
-    // 获取维度
+    /**
+     * @brief 获取数据维度。
+     * @return 数据维度。
+     */
     int GetDim() const
     {
         return dim_;
     }
 
-    // 获取名称
+    /**
+     * @brief 获取组件名称。
+     * @return 组件名称。
+     */
     const std::string &GetName() const
     {
         return name_;
     }
 
-    // 设置偏移（在整体 obs 中的起始位置）
+    /**
+     * @brief 设置偏移（在整体 obs 中的起始位置）
+     * @param offset 偏移值。
+     */
     void SetOffset(int offset)
     {
         offset_ = offset;
     }
 
-    // 获取偏移
+    /**
+     * @brief 获取偏移
+     * @return 偏移值。
+     */
     int GetOffset() const
     {
         return offset_;
@@ -61,7 +74,7 @@ class ObservationComponent
   protected:
     int dim_;                               // 数据维度（从YAML len读取）
     std::string name_;                      // 组件名称（从YAML键读取）
-    float scale_;                          // 数据缩放因子（从YAML scale读取）
+    float scale_;                           // 数据缩放因子（从YAML scale读取）
     int offset_ = 0;                        // 在整体 obs 中的偏移（由管理类设置，根据slice
     std::shared_ptr<DataStore> data_store_; // 共享数据存储
 };

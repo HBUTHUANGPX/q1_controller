@@ -21,8 +21,7 @@ class MotionLoader
   public:
     /**
      * @brief 构造函数，从 NPZ 文件加载数据。
-     * @param motion_file NPZ 文件路径。
-     * @param body_indexes body 索引序列（用于子集选择）。
+     * @param config_ YAML 配置节点，包含 motion_file 和 body_indexes。
      */
     MotionLoader(const YAML::Node &config_);
 
@@ -31,19 +30,29 @@ class MotionLoader
      */
     ~MotionLoader() = default;
 
-    // 获取 FPS
+    /**
+     * @brief 获取 FPS 值
+     * @return FPS 值
+     */
     float getFps() const
     {
         return fps_;
     }
 
-    // 获取总时间步数
+    /**
+     * @brief 获取总时间步数
+     * @return 总时间步数
+     */
     size_t getTimeStepTotal() const
     {
         return time_step_total_;
     }
 
-    // 获取 joint_pos (完整数据)
+    /**
+     * @brief 获取 joint_pos (完整数据)
+     * @param index 时间步索引
+     * @return joint_pos 数据
+     */
     Eigen::MatrixXf getJointPos(size_t index) const
     {
 
@@ -51,23 +60,43 @@ class MotionLoader
         return col;
     }
 
-    // 获取 joint_vel (完整数据)
+    /**
+     * @brief 获取 joint_vel (完整数据)
+     * @param index 时间步索引
+     * @return joint_vel 数据
+     */
     Eigen::MatrixXf getJointVel(size_t index) const
     {
         Eigen::MatrixXf col = joint_vel_.col(index);
         return col;
     }
 
-    // 获取 body_pos_w 子集 (时间 x body_indexes.size() x 3)
+    /**
+     * @brief 获取 body_pos_w 子集 (时间 x body_indexes.size() x 3)
+     * @param index 时间步索引
+     * @return body_pos_w 子集数据
+     */
     Eigen::MatrixXf getBodyPosW(size_t index) const;
 
-    // 获取 body_quat_w 子集 (时间 x body_indexes.size() x 4)
+    /**
+     * @brief 获取 body_quat_w 子集 (时间 x body_indexes.size() x 4)
+     * @param index 时间步索引
+     * @return body_quat_w 子集数据
+     */
     Eigen::MatrixXf getBodyQuatW(size_t index) const;
 
-    // 获取 body_lin_vel_w 子集 (时间 x body_indexes.size() x 3)
+    /**
+     * @brief 获取 body_lin_vel_w 子集 (时间 x body_indexes.size() x 3)
+     * @param index 时间步索引
+     * @return body_lin_vel_w 子集数据
+     */
     Eigen::MatrixXf getBodyLinVelW(size_t index) const;
 
-    // 获取 body_ang_vel_w 子集 (时间 x body_indexes.size() x 3)
+    /**
+     * @brief 获取 body_ang_vel_w 子集 (时间 x body_indexes.size() x 3)
+     * @param index 时间步索引
+     * @return body_ang_vel_w 子集数据
+     */
     Eigen::MatrixXf getBodyAngVelW(size_t index) const;
 
   private:
