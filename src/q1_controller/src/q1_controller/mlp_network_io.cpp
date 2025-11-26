@@ -65,14 +65,6 @@ MLPNetworkIO::MLPNetworkIO(const YAML::Node &config_)
 std::vector<Eigen::MatrixXf> MLPNetworkIO::PrepareInputs(const Eigen::MatrixXf &observations,
                                                          const std::vector<Eigen::MatrixXf> &states, float time_step)
 {
-    // // printf("MLPNetworkIO: PrepareInputs function start \r\n");
-    // if (!states.empty())
-    //     throw std::runtime_error("MLP does not require states.");
-    // Eigen::MatrixXf time_mat(1, 1);
-    // time_mat(0, 0) = time_step;
-    // // // printf("MLPNetworkIO: PrepareInputs function process ok \r\n");
-    // return {observations, time_mat};
-
     if (!states.empty())
     {
         throw std::runtime_error("MLP 不需要 hidden/cell 状态");
@@ -117,7 +109,9 @@ std::pair<Eigen::VectorXf, std::vector<Eigen::MatrixXf>> MLPNetworkIO::ExtractOu
 {
     // // printf("MLPNetworkIO: ExtractOutputs function start \r\n");
     if (raw_outputs.empty())
+    {
         throw std::runtime_error("No outputs from MLP.");
+    }
     // 使用"actions"键提取动作（假设第一个输出为actions）
     auto it = raw_outputs.find("actions");
     if (it == raw_outputs.end())

@@ -1,6 +1,6 @@
 # policy_path: "/home/niic/RL_control/Q1_control/src/q1_controller/policy/2025-10-31_21-45-24_Q1_251021_03_walk_120Hz_67500/policy.onnx"
-# policy_path: "src/q1_controller/policy/2025-11-25_20-47_Q1_lilu_AMP/policy.onnx"
-policy_path: "src/q1_controller/policy/2025-11-25_20-47_Q1_lilu_AMP/policy_wo_dynax.onnx"
+policy_path: "src/q1_controller/policy/2025-11-25_20-47_Q1_lilu_AMP/policy.onnx"
+# policy_path: "src/q1_controller/policy/2025-11-25_20-47_Q1_lilu_AMP/policy_wo_dynax.onnx"
 
 # mocap_path: "/home/niic/RL_control/Q1_control/src/q1_controller/artifacts/Q1_251021_03_saw_120Hz_v3/motion.npz"
 mocap_path: "src/q1_controller/artifacts/Q1_251021_03_saw_120Hz_v3/motion.npz"
@@ -12,11 +12,11 @@ frame_stack: 1
 dt: 0.002
 decimation: 10
 action_scale: 0.25
-recal_action_scale_by_tq_max_and_kp: true # new_scale = scale*torque_max/kp
+recal_action_scale_by_tq_max_and_kp: false # true, false new_scale = scale*torque_max/kp
 action_limit: 10.0
-gamepad_cmd_vel_scale_vx: 1.0
-gamepad_cmd_vel_scale_vy: 1.0
-gamepad_cmd_vel_scale_wz: 1.0
+gamepad_cmd_vel_scale_vx: 2.0
+gamepad_cmd_vel_scale_vy: 2.0
+gamepad_cmd_vel_scale_wz: 2.0
 
 inputs:
 - name: "obs"
@@ -47,24 +47,25 @@ motors:
 # id表示的是在MotorInfo这个数据结构中的索引,从0到28
 # ec_id表示MotorInfo中的id
 # NOTE: ankle的两个关节的direction请务必是1
+# NOTE: direction仅在2real中需要并起作用
 - L_hip_roll_joint: { id: 14, ec_id: 109, direction: 1, kp: 300.0, kd: 3.5, torque_max: 90.0, default_pos: 0.0 }
 - L_hip_yaw_joint: { id: 15, ec_id: 110, direction: -1, kp: 300.0, kd: 3.5, torque_max: 60.0, default_pos: 0.0 }
-- L_hip_pitch_joint: { id: 16, ec_id: 111, direction: -1, kp: 350.0, kd: 4.5, torque_max: 330.0, default_pos: 0.0 }
-- L_knee_joint: { id: 17, ec_id: 112, direction: 1, kp: 400.0, kd: 5.0, torque_max: 330.0, default_pos: 0.0 }
-- L_ankle_pitch_joint: { id: 18, ec_id: 113, direction: 1, kp: 80.0, kd: 3.0, torque_max: 36.0, default_pos: 0.0 }
+- L_hip_pitch_joint: { id: 16, ec_id: 111, direction: -1, kp: 350.0, kd: 4.5, torque_max: 330.0, default_pos: -0.12 }
+- L_knee_joint: { id: 17, ec_id: 112, direction: 1, kp: 400.0, kd: 5.0, torque_max: 330.0, default_pos: 0.32 }
+- L_ankle_pitch_joint: { id: 18, ec_id: 113, direction: 1, kp: 80.0, kd: 3.0, torque_max: 36.0, default_pos: -0.185 }
 - L_ankle_roll_joint: { id: 19, ec_id: 114, direction: 1, kp: 80.0, kd: 3.0, torque_max: 36.0, default_pos: 0.0 }
 
 - R_hip_roll_joint: { id: 20, ec_id: 209, direction: 1, kp: 300.0, kd: 3.5, torque_max: 90.0, default_pos: 0.0 }
 - R_hip_yaw_joint: { id: 21, ec_id: 210, direction: -1, kp: 300.0, kd: 3.5, torque_max: 60.0, default_pos: 0.0 }
-- R_hip_pitch_joint: { id: 22, ec_id: 211, direction: 1, kp: 350.0, kd: 4.5, torque_max: 330.0, default_pos: 0.0 }
-- R_knee_joint: { id: 23, ec_id: 212, direction: -1, kp: 400.0, kd: 5.0, torque_max: 330.0, default_pos: 0.0 }
-- R_ankle_pitch_joint: { id: 24, ec_id: 213, direction: 1, kp: 80.0, kd: 3.0, torque_max: 36.0, default_pos: 0.0 }
+- R_hip_pitch_joint: { id: 22, ec_id: 211, direction: 1, kp: 350.0, kd: 4.5, torque_max: 330.0, default_pos: -0.12 }
+- R_knee_joint: { id: 23, ec_id: 212, direction: -1, kp: 400.0, kd: 5.0, torque_max: 330.0, default_pos: 0.32 }
+- R_ankle_pitch_joint: { id: 24, ec_id: 213, direction: 1, kp: 80.0, kd: 3.0, torque_max: 36.0, default_pos: -0.185 }
 - R_ankle_roll_joint: { id: 25, ec_id: 214, direction: 1, kp: 80.0, kd: 3.0, torque_max: 36.0, default_pos: 0.0 }
 
 - pelvis_joint: { id: 28, ec_id: 3, direction: 1, kp: 70.0, kd: 1.5, torque_max: 42.0, default_pos: 0.0 }
 
 - L_shoulder_pitch_joint: { id: 0, ec_id: 101, direction: 1, kp: 70.0, kd: 1.5, torque_max: 42.0, default_pos: 0.0 }
-- L_shoulder_roll_joint: { id: 1, ec_id: 102, direction: -1, kp: 70.0, kd: 1.5, torque_max: 42.0, default_pos: 0.0 }
+- L_shoulder_roll_joint: { id: 1, ec_id: 102, direction: -1, kp: 70.0, kd: 1.5, torque_max: 42.0, default_pos: 0.25 }
 - L_shoulder_yaw_joint: { id: 2, ec_id: 103, direction: -1, kp: 70.0, kd: 2.0, torque_max: 23.0, default_pos: 0.0 }
 - L_elbow_joint: { id: 3, ec_id: 104, direction: -1, kp: 70.0, kd: 2.0, torque_max: 23.0, default_pos: 0.0 }
 - L_forearm_yaw_joint: { id: 4, ec_id: 105, direction: -1, kp: 20.0, kd: 1.0, torque_max: 8.3, default_pos: 0.0 }
@@ -72,7 +73,7 @@ motors:
 - L_wrist_pitch_joint: { id: 6, ec_id: 107, direction: 1, kp: 20.0, kd: 1.0, torque_max: 3.3, default_pos: 0.0 }
 
 - R_shoulder_pitch_joint: { id: 7, ec_id: 201, direction: -1, kp: 70.0, kd: 1.5, torque_max: 42.0, default_pos: 0.0 }
-- R_shoulder_roll_joint: { id: 8, ec_id: 202, direction: -1, kp: 70.0, kd: 1.5, torque_max: 42.0, default_pos: 0.0 }
+- R_shoulder_roll_joint: { id: 8, ec_id: 202, direction: -1, kp: 70.0, kd: 1.5, torque_max: 42.0, default_pos: -0.25 }
 - R_shoulder_yaw_joint: { id: 9, ec_id: 203, direction: -1, kp: 70.0, kd: 2.0, torque_max: 23.0, default_pos: 0.0 }
 - R_elbow_joint: { id: 10, ec_id: 204, direction: 1, kp: 70.0, kd: 2.0, torque_max: 23.0, default_pos: 0.0 }
 - R_forearm_yaw_joint: { id: 11, ec_id: 205, direction: -1, kp: 20.0, kd: 1.0, torque_max: 8.3, default_pos: 0.0 }

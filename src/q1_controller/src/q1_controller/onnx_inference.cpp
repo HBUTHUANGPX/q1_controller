@@ -107,9 +107,9 @@ void OnnxInference::LoadModel(const std::string &model_path)
         }
         for (size_t j = 0; j < model_shape.size(); j++)
         {
-            std::cout << "model_shape: "<<model_shape[j] << std::endl;
+            std::cout << "model_shape: " << model_shape[j] << std::endl;
         }
-        
+
         input_shapes_.push_back(model_shape);
     }
     if (outputNodeCount != output_names.size())
@@ -132,9 +132,6 @@ void OnnxInference::LoadModel(const std::string &model_path)
         output_shapes_.push_back(model_shape);
     }
     std::cout << "模型输入输出检验通过。" << std::endl;
-    // 准备输入形状（ONNX 需要 int64_t 向量，匹配GetShape）。
-    obs_shape = session_.GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
-    time_shape = {1, 1};
 }
 
 /**
@@ -146,10 +143,9 @@ void OnnxInference::LoadModel(const std::string &model_path)
  * @return 输出映射，键为 "actions"，值为 Eigen::MatrixXf。
  */
 std::map<std::string, Eigen::MatrixXf> OnnxInference::Infer(const std::vector<Eigen::MatrixXf> &inputs)
-{
+{ 
     if (inputs.size() != inputNodeCount)
     {
-        std::cout << inputs.size() <<" "<< inputNodeCount << std::endl;
         ORT_CXX_API_THROW("Input count mismatch for ONNX inference.", ORT_INVALID_ARGUMENT);
     }
     // 在循环外部初始化数据缓冲区向量
@@ -159,21 +155,60 @@ std::map<std::string, Eigen::MatrixXf> OnnxInference::Infer(const std::vector<Ei
     // 循环计算大小、分配缓冲区并复制数据
     for (size_t i = 0; i < inputs.size(); ++i)
     {
-        size_t size = 1;
-        for (auto dim : input_shapes_[i])
+        // 获取模型形状（可能包含 -1）
+        std::vector<int64_t> model_shape = input_shapes_[i];
+        if (model_shape.empty())
         {
-            size *= dim;
-            std::cout << size <<" "<< dim << std::endl;
-
+            ORT_CXX_API_THROW("Invalid model input shape: empty shape.", ORT_INVALID_ARGUMENT);
         }
 
-        // 验证 Eigen 输入大小匹配
+        // 假设第一个维度可能是动态 batch（-1），其他维度固定
+        int64_t model_batch = model_shape[0];
+        bool is_dynamic_batch = (model_batch == -1);
+
+        // 从实际输入获取 batch 和 flattened 维度（Eigen::MatrixXf 是 2D）
+        Eigen::Index actual_batch = inputs[i].rows();
+        Eigen::Index actual_flattened = inputs[i].cols();
+
+        // 验证 batch 匹配
+        if (!is_dynamic_batch && model_batch != actual_batch)
+        {
+            ORT_CXX_API_THROW("Batch dimension mismatch for input " + std::to_string(i), ORT_INVALID_ARGUMENT);
+        }
+
+        // 计算模型的 flattened 维度（product of shape[1:]）
+        size_t model_flattened = 1;
+        for (size_t j = 1; j < model_shape.size(); ++j)
+        {
+            int64_t d = model_shape[j];
+            if (d < 0)
+            {
+                ORT_CXX_API_THROW("Unsupported dynamic dimension beyond batch for input " + std::to_string(i),
+                                  ORT_INVALID_ARGUMENT);
+            }
+            model_flattened *= static_cast<size_t>(d);
+        }
+
+        // 验证 flattened 维度匹配
+        if (model_flattened != static_cast<size_t>(actual_flattened))
+        {
+            ORT_CXX_API_THROW("Feature (flattened) dimension mismatch for input " + std::to_string(i),
+                              ORT_INVALID_ARGUMENT);
+        }
+
+        // 计算总元素数
+        size_t size = static_cast<size_t>(actual_batch) * model_flattened;
+
+        // 验证 Eigen 输入总大小匹配
         if (static_cast<size_t>(inputs[i].size()) != size)
         {
-            std::cout << static_cast<size_t>(inputs[i].size()) <<" "<< size << std::endl;
-            ORT_CXX_API_THROW("Eigen input size does not match ONNX shape.", ORT_INVALID_ARGUMENT);
+            ORT_CXX_API_THROW("Eigen input total size does not match computed shape for input " + std::to_string(i),
+                              ORT_INVALID_ARGUMENT);
         }
-        
+
+        // 创建实际形状（替换 -1 为 actual_batch）
+        std::vector<int64_t> actual_shape = model_shape;
+        actual_shape[0] = actual_batch;
 
         // 分配并初始化缓冲区
         input_datas[i] = std::vector<float>(size, 0.0f);
@@ -181,10 +216,12 @@ std::map<std::string, Eigen::MatrixXf> OnnxInference::Infer(const std::vector<Ei
         // 高效复制 Eigen 数据（假设行优先存储）
         const float *input_ptr = inputs[i].data();
         std::copy(input_ptr, input_ptr + size, input_datas[i].begin());
-        input_tensors.push_back(Ort::Value::CreateTensor<float>(memoryInfo, input_datas[i].data(),
-                                                                input_datas[i].size(), input_shapes_[i].data(),
-                                                                input_shapes_[i].size()));
+
+        // 创建 ONNX Tensor
+        input_tensors.push_back(Ort::Value::CreateTensor<float>(
+            memoryInfo, input_datas[i].data(), input_datas[i].size(), actual_shape.data(), actual_shape.size()));
     }
+
     std::vector<Ort::Value> output_tensors =
         session_.Run(Ort::RunOptions{nullptr}, inputNodeNames.data(), input_tensors.data(), inputNodeCount,
                      outputNodeNames.data(), outputNodeCount);
@@ -221,23 +258,25 @@ Eigen::MatrixXf OnnxInference::OrtValueToEigen(const Ort::Value &value)
 
     auto type_shape = value.GetTensorTypeAndShapeInfo();
     auto shape = type_shape.GetShape();
-    if (shape.empty() || shape[0] != 1)
+    if (shape.empty())
     {
-        ORT_CXX_API_THROW("Invalid ONNX output shape: expected batch size 1 as first dimension.", ORT_INVALID_ARGUMENT);
+        ORT_CXX_API_THROW("Invalid ONNX output shape: empty shape.", ORT_INVALID_ARGUMENT);
     }
 
-    // const float *data = value.GetTensorData<float>(); // 获取const数据指针（匹配GetTensorData）。
-    // Eigen::MatrixXf result(1, static_cast<Eigen::Index>(shape[1]));
-    // std::copy(data, data + shape[1], result.data()); // 拷贝数据到Eigen。
-    // 计算展平后的列数（剩余维度的乘积）
-    Eigen::Index rows = static_cast<Eigen::Index>(shape[0]); // 批次大小
-    Eigen::Index cols = 1;
+    // batch 维度（第一个维度）
+    Eigen::Index batch = static_cast<Eigen::Index>(shape[0]);
+
+    // 计算剩余维度的乘积作为 flattened columns
+    Eigen::Index flattened = 1;
     for (size_t i = 1; i < shape.size(); ++i)
     {
-        cols *= static_cast<Eigen::Index>(shape[i]);
+        flattened *= static_cast<Eigen::Index>(shape[i]);
     }
+
+    // 获取数据并复制到 Eigen 矩阵
     const float *data = value.GetTensorData<float>();
-    Eigen::MatrixXf result(rows, cols);
-    std::copy(data, data + rows * cols, result.data());
+    Eigen::MatrixXf result(batch, flattened);
+    std::copy(data, data + batch * flattened, result.data());
+
     return result;
 }

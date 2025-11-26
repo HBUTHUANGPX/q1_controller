@@ -54,17 +54,11 @@ class OnnxInference : public InferenceBase
     std::vector<std::shared_ptr<char>> outputNames;
     std::vector<char *> inputNodeNames;
     std::vector<char *> outputNodeNames;
-    std::vector<int64_t> obs_shape;
-    std::vector<int64_t> time_shape;
     // 创建输入 tensor（使用辅助函数）。
     std::vector<Ort::Value> input_tensors;
     size_t inputNodeCount,outputNodeCount;
     std::vector<std::vector<int64_t>> input_shapes_;  // 存储动态形状
     std::vector<std::vector<int64_t>> output_shapes_;
-
-    // 辅助函数：将 Eigen 矩阵转换为 ONNX Ort::Value (Tensor)。
-    // 使用Ort::Value::CreateTensor<float>，并复制数据以确保兼容（匹配onnxruntime_cxx_inline.h中的CreateTensorWithDataAsOrtValue逻辑）。
-    Ort::Value EigenToOrtValue(const Ort::MemoryInfo &memoryInfo,const Eigen::MatrixXf &matrix, const std::vector<int64_t> &shape);
 
     // 辅助函数：将 ONNX Ort::Value 转换为 Eigen 矩阵。
     // 使用GetTensorMutableData<float>获取数据，并复制到Eigen矩阵（确保RAII安全）。

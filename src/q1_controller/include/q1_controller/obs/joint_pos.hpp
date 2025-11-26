@@ -14,13 +14,13 @@ class JointPos : public ObservationComponent
 {
   public:
     JointPos(int dim, float scale, std::shared_ptr<DataStore> data_store)
-        : ObservationComponent(dim, "joint_pos", scale, data_store), default_pos_(Eigen::VectorXf::Zero(dim))
+        : ObservationComponent(dim, "joint_pos", scale, data_store)
     {
     }
 
     void Update(Eigen::MatrixXf &obs, float time_step) override
     {
-        Eigen::VectorXf data = data_store_->GetJointPositions() - default_pos_; // 减默认位置
+        Eigen::VectorXf data = data_store_->GetJointPositions(); // 减默认位置
         // std::cout << "components: "<<name_ <<"\n[";
         // for (int i = 0; i < data.size(); ++i) {
         //     printf("%7.4f ",data[i]);
@@ -33,14 +33,6 @@ class JointPos : public ObservationComponent
         obs.block(0, offset_, 1, dim_) = (data * scale_).transpose();
         // std::cout<<"Update "<<name_<<": "<< obs.block(0, offset_, 1, dim_)<<std::endl;
     }
-    // 设置默认位置（从YAML加载）
-    void SetDefaultPos(const Eigen::VectorXf &default_pos)
-    {
-        default_pos_ = default_pos;
-    }
-
-  private:
-    Eigen::VectorXf default_pos_ = Eigen::VectorXf::Zero(dim_); // 从YAML或配置加载默认位置
 };
 
 #endif // JOINT_POS_HPP

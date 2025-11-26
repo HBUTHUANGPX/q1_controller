@@ -66,7 +66,7 @@ class MotorBase
 
     float getCurrentPos() const
     {
-        return pos_;
+        return pos_-default_pos_;
     }
     float getCurrentVel() const
     {
@@ -116,9 +116,9 @@ class MotorBase
     void setTargetPos(float value) // 将action数据给入
     {
 #if defined(USE_TENSORRT)
-        motor_data.pos = value * direction_; // 对于实机，此时需要进行方向转换
+        motor_data.pos = value * direction_ + default_pos_; // 对于实机，此时需要进行方向转换
 #else
-        target_pos_ = value;
+        target_pos_ = value + default_pos_;
 #endif
     }
     void resetTargetPos(float value)
