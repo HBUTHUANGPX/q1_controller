@@ -4,6 +4,7 @@
 
 /**
  * @brief MotionLoader 构造函数实现。
+ * @param config_ YAML 配置节点，包含 motion_file 和 body_indexes。
  */
 MotionLoader::MotionLoader(const YAML::Node &config_)
 {
@@ -27,6 +28,7 @@ MotionLoader::MotionLoader(const YAML::Node &config_)
 
 /**
  * @brief 加载 NPZ 数据实现。
+ * @param motion_file NPZ 文件路径。
  */
 void MotionLoader::loadData(const std::string &motion_file)
 {
@@ -167,6 +169,8 @@ void MotionLoader::loadData(const std::string &motion_file)
 
 /**
  * @brief 获取 body_pos_w 子集。
+ * @param index 时间步索引。
+ * @return body_pos_w 子集数据。
  */
 Eigen::MatrixXf MotionLoader::getBodyPosW(size_t index) const
 {
@@ -188,6 +192,11 @@ Eigen::MatrixXf MotionLoader::getBodyPosW(size_t index) const
     return subset;
 }
 
+/**
+ * @brief 获取 body_quat_w 子集。
+ * @param index 时间步索引。
+ * @return body_quat_w 子集数据。
+ */
 Eigen::MatrixXf MotionLoader::getBodyQuatW(size_t index) const
 {
     if (index < 0 || index >= time_step_total_)
@@ -203,6 +212,11 @@ Eigen::MatrixXf MotionLoader::getBodyQuatW(size_t index) const
     return subset;
 }
 
+/**
+ * @brief 获取 body_lin_vel_w 子集。
+ * @param index 时间步索引。
+ * @return body_lin_vel_w 子集数据。
+ */
 Eigen::MatrixXf MotionLoader::getBodyLinVelW(size_t index) const
 {
     if (index < 0 || index >= time_step_total_)
@@ -218,6 +232,11 @@ Eigen::MatrixXf MotionLoader::getBodyLinVelW(size_t index) const
     return subset;
 }
 
+/**
+ * @brief 获取 body_ang_vel_w 子集。
+ * @param index 时间步索引。
+ * @return body_ang_vel_w 子集数据。
+ */
 Eigen::MatrixXf MotionLoader::getBodyAngVelW(size_t index) const
 {
     if (index < 0 || index >= time_step_total_)

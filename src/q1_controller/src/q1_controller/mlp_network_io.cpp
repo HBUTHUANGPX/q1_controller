@@ -3,7 +3,11 @@
 
 namespace
 {
-// 辅助函数：从 YAML 加载名称和形状
+/**
+ * @brief 从 YAML 配置加载输入名称列表。
+ * @param cfg YAML 配置节点。
+ * @return 输入名称列表。
+ */
 auto load_input_names = [](const YAML::Node &cfg) -> std::vector<std::string> {
     std::vector<std::string> names;
     for (const auto &input : cfg["inputs"])
@@ -13,6 +17,11 @@ auto load_input_names = [](const YAML::Node &cfg) -> std::vector<std::string> {
     return names;
 };
 
+/**
+ * @brief 从 YAML 配置加载输出名称列表。
+ * @param cfg YAML 配置节点。
+ * @return 输出名称列表。
+ */
 auto load_output_names = [](const YAML::Node &cfg) -> std::vector<std::string> {
     std::vector<std::string> names;
     for (const auto &output : cfg["outputs"])
@@ -22,6 +31,11 @@ auto load_output_names = [](const YAML::Node &cfg) -> std::vector<std::string> {
     return names;
 };
 
+/**
+ * @brief 从 YAML 配置生成输入形状列表。
+ * @param cfg YAML 配置节点。
+ * @return 输入形状列表。
+ */
 auto make_input_shapes = [](const YAML::Node &cfg) -> std::vector<Eigen::VectorXf> {
     std::vector<Eigen::VectorXf> shapes;
     for (const auto &input : cfg["inputs"])
@@ -37,6 +51,11 @@ auto make_input_shapes = [](const YAML::Node &cfg) -> std::vector<Eigen::VectorX
     return shapes;
 };
 
+/**
+ * @brief 从 YAML 配置生成输出形状列表。
+ * @param cfg YAML 配置节点。
+ * @return 输出形状列表。
+ */
 auto make_output_shapes = [](const YAML::Node &cfg) -> std::vector<Eigen::VectorXf> {
     std::vector<Eigen::VectorXf> shapes;
     for (const auto &output : cfg["outputs"])
@@ -52,6 +71,11 @@ auto make_output_shapes = [](const YAML::Node &cfg) -> std::vector<Eigen::Vector
     return shapes;
 };
 } // namespace
+
+/**
+ * @brief MLPNetworkIO 构造函数实现。
+ * @param config YAML 配置节点，包含参数设置。
+ */
 MLPNetworkIO::MLPNetworkIO(const YAML::Node &config_)
     : NetworkIOBase(load_input_names(config_),    // 从 YAML 加载输入名称
                     make_input_shapes(config_),   // 自定义函数生成形状
@@ -62,6 +86,14 @@ MLPNetworkIO::MLPNetworkIO(const YAML::Node &config_)
 {
     // // printf("MLPNetworkIO: construct function init ok\r\n");
 }
+
+/**
+ * @brief 准备网络输入数据实现。
+ * @param observations 当前观测数据 (Eigen::MatrixXf)。
+ * @param states 额外状态，如 LSTM 的 hidden 和 cell (std::vector<Eigen::MatrixXf>)。
+ * @param time_step 当前时间步长（可选）。
+ * @return 准备好的输入列表，供推理引擎使用。
+ */
 std::vector<Eigen::MatrixXf> MLPNetworkIO::PrepareInputs(const Eigen::MatrixXf &observations,
                                                          const std::vector<Eigen::MatrixXf> &states, float time_step)
 {
@@ -104,6 +136,11 @@ std::vector<Eigen::MatrixXf> MLPNetworkIO::PrepareInputs(const Eigen::MatrixXf &
     return inputs;
 }
 
+/**
+ * @brief 提取网络输出数据实现。
+ * @param raw_outputs 原始输出数据映射。
+ * @return 提取的动作和状态数据。
+ */
 std::pair<Eigen::VectorXf, std::vector<Eigen::MatrixXf>> MLPNetworkIO::ExtractOutputs(
     const std::map<std::string, Eigen::MatrixXf> &raw_outputs)
 {

@@ -32,6 +32,7 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
         std::string name = map_iter->first.as<std::string>(); // 键作为名称
         YAML::Node params = map_iter->second;                 // 值作为参数节点
 
+        /* 导入motor 参数 */
         float kp = params["kp"].as<float>();
         float kd = params["kd"].as<float>();
         float max_torque = params["torque_max"].as<float>();
@@ -40,6 +41,7 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
         int ec_id = params["ec_id"].as<int>();
         int direction = params["direction"].as<int>();
 
+        /* 创建电机对象并添加到列表 */
         auto motor = std::make_shared<MotorBase>(name, kp, kd, max_torque, default_pos, id, ec_id, direction);
         motors_.push_back(motor);
         name_to_index_[name] = index++;
@@ -93,7 +95,7 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
         }
     }
     std::cout << "]\n";
-    current_pos_ = Eigen::VectorXf::Zero(joint_indices_in_motors.size());
+    current_pos_ = Eigen::VectorXf::Zero(joint_indices_in_motors.size()); 
     current_vel_ = Eigen::VectorXf::Zero(joint_indices_in_motors.size());
     std::cout << "motor size: " << joint_indices_in_motors.size() << std::endl;
 #if defined(USE_TENSORRT)
@@ -101,15 +103,15 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
     // 初始化每个元素（示例）
     for (size_t i = 0; i < control_data.size(); ++i)
     {
-        control_data[i].kp = motors_in_id_[i]->getKp();
-        control_data[i].kd = motors_in_id_[i]->getKd();
+        control_data[i].kp = motors_in_id_[i]->getKp(); // 获取P增益
+        control_data[i].kd = motors_in_id_[i]->getKd(); // 获取D增益
     }
 #endif
     printf("MotorManager:config joint ok\r\n");
-    std::string deploy_mode_ = config["deploy_mode"].as<std::string>();
+    std::string deploy_mode_ = config["deploy_mode"].as<std::string>(); // sim2sim or sim2real
     std::string sim2sim = "sim2sim";
     std::string sim2real = "sim2real";
-    if (sim2sim == deploy_mode_)
+    if (sim2sim == deploy_mode_) // mujoco仿真
     {
         // 创建订阅器
         joint_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
@@ -123,7 +125,7 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
     else if (sim2real == deploy_mode_)
     {
         /* code */
-        state_recv_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
+        state_recv_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10); //创建真实电机状态的发布器
         state_ctrl_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/joint_ctrls", 10);
     }
     else
@@ -132,7 +134,7 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
                                  ",请检查并核对.yaml文件中的 'deploy_mode' 字段");
     }
     // 创建发布器
-    target_pos_pub_ = node_->create_publisher<q1_controller::msg::MultiMotorCommand>("/target_pos", 10);
+    target_pos_pub_ = node_->create_publisher<q1_controller::msg::MultiMotorCommand>("/target_pos", 10); //创建目标位置发布器
 }
 
 /**
@@ -161,10 +163,11 @@ std::shared_ptr<MotorBase> MotorManager::getMotorByName_in_id(const std::string 
 }
 std::shared_ptr<MotorBase> MotorManager::getMotorByID(int ID) const
 {
-    // TODO：不是很想写，有需要再弄
+    // TODO：不是很想写，有需要再弄 ok
 }
 /**
  * @brief 通过索引获取电机。
+ * @param index 索引
  */
 std::shared_ptr<MotorBase> MotorManager::getMotorByIndex(size_t index) const
 {
@@ -175,6 +178,11 @@ std::shared_ptr<MotorBase> MotorManager::getMotorByIndex(size_t index) const
     return nullptr;
 }
 
+/**
+ * @brief 处理JointState消息，更新当前状态。
+ * @param message JointState消息字符串。
+ * @param from_port 消息来源端口。
+ */
 void MotorManager::jointStateUpdate(const std::string &message, int from_port)
 {
     // 转换为二进制数据
@@ -184,7 +192,7 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
     // printf("MotorManager:反序列化\r\n");
 #if defined(USE_TENSORRT)
     std::vector<MotorInfo> received_motors;
-    if (MotorSerializer::deserialize_array(binary_data, received_motors))
+    if (MotorSerializer::deserialize_array(binary_data, received_motors)) //反序列化成功
     {
         for (size_t i = 0; i < received_motors.size(); i++)
         {
@@ -195,12 +203,12 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
         // sensor_msgs::msg::JointState msg;
         auto msg = std::make_unique<sensor_msgs::msg::JointState>();
         // received_motors存放的是真实关节电机的关节角度和角速度
-        // 现在需要将MotorBase中的 “ankle_pitch“ 和 “ankle_roll“ 中存放的AB电机的数据拿出来
+        // 现在需要将MotorBase中的“ankle_pitch“ 和 “ankle_roll“ 中存放的AB电机的数据拿出来
         // 然后通过FK计算得到虚拟关节“ankle_pitch“和 “ankle_roll“的关节角度和角速度
         // 现在假设.yaml中的 _ankle_pitch_joint 放的是A电机，也就是theta
         // 现在假设.yaml中的 _ankle_roll_joint 放的是B电机，也就是phi
         // 上A下B
-
+        /* 踝关节前向动力学 */
         std::shared_ptr<MotorBase> L_ankle_pitch_joint_ = getMotorByName("L_ankle_pitch_joint");
         std::shared_ptr<MotorBase> L_ankle_roll_joint_ = getMotorByName("L_ankle_roll_joint");
         std::shared_ptr<MotorBase> R_ankle_pitch_joint_ = getMotorByName("R_ankle_pitch_joint");
@@ -263,6 +271,9 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
 
 /**
  * @brief 发布目标位置命令。
+ * @param actions 动作向量（目标位置）。
+ * @param zero_kp 是否将P增益置零。
+ * @param zero_kd 是否将D增益置零。
  */
 void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp, bool zero_kd)
 {
@@ -322,6 +333,7 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
     state_ctrl_pub_->publish(std::move(JointState_msg));
 
     // RCLCPP_WARN(node_->get_logger(), "state_ctrl_pub_ ok.");
+
     std::string L_ankle_pitch, L_ankle_roll, R_ankle_pitch, R_ankle_roll;
     L_ankle_pitch = "L_ankle_pitch_joint";
     L_ankle_roll = "L_ankle_roll_joint";
@@ -379,6 +391,13 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
     target_pos_pub_->publish(std::move(msg));
 }
 
+/**
+ * @brief 生成关节命令字符串。
+ * @param actions 动作向量（目标位置）。
+ * @param zero_kp 是否将P增益置零。
+ * @param zero_kd 是否将D增益置零。
+ * @return std::string 序列化的关节命令字符串。
+ */
 std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero_kp, bool zero_kd)
 {
     publishTargetPos(actions, zero_kp, zero_kd);
@@ -405,7 +424,8 @@ std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero
 }
 
 /**
- * @brief JointState回调函数实现。
+ * @brief JointState回调函数实现，更新当前状态。
+ * @param msg JointState消息指针。
  */
 void MotorManager::jointCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
@@ -446,7 +466,8 @@ void MotorManager::jointCallback(const sensor_msgs::msg::JointState::SharedPtr m
  * @brief 计算源向量中每个元素在目标向量中的索引。
  * @param src 源向量（例如 motors_）。
  * @param target 目标向量（例如 motors_in_id_）。
- * @return std::vector<size_t> 索引向量，未找到的位置为 std::numeric_limits<size_t>::max()。
+ * @return  索引向量
+ * @note std::vector<size_t> 未找到的位置为 std::numeric_limits<size_t>::max()。
  */
 std::vector<size_t> MotorManager::findMutualIndices(const std::vector<std::shared_ptr<MotorBase>> &src,
                                                     const std::vector<std::shared_ptr<MotorBase>> &target) const

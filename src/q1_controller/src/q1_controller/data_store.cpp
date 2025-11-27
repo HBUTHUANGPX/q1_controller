@@ -1,6 +1,11 @@
 // 文件: data_store.cpp
 #include "../../include/q1_controller/data_store.hpp"
 
+/**
+ * @brief DataStore构造函数实现。
+ * @param config YAML配置节点，包含参数设置
+ * @param motion_loader 运动数据加载器指针
+ */
 DataStore::DataStore(const YAML::Node &config_, std::shared_ptr<MotionLoader> motion_loader)
     : motion_loader_(motion_loader)
 {
@@ -12,7 +17,7 @@ DataStore::DataStore(const YAML::Node &config_, std::shared_ptr<MotionLoader> mo
     {
         throw std::runtime_error("YAML 'joint_index_in_need' must be a sequence.");
     }
-    size_t joint_index_in_need =config_["joint_index_in_need"].size();
+    size_t joint_index_in_need =config_["joint_index_in_need"].size(); // 需要的关节维度
     
 
     isaac_sim_trans_flag_ = config_["isaac_sim_trans_flag"].as<bool>();
@@ -61,48 +66,80 @@ DataStore::DataStore(const YAML::Node &config_, std::shared_ptr<MotionLoader> mo
     gamepad_cmd_vel << scale_vx, scale_vy, scale_wz;
 }
 
+/**
+ * @brief 更新关节位置实现。
+ * @param positions 关节位置向量
+ */
 void DataStore::UpdateJointPositions(const Eigen::VectorXf &positions)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     joint_positions_ = positions;
 }
 
+/**
+ * @brief 更新关节速度实现。
+ * @param velocities 关节速度向量
+ */
 void DataStore::UpdateJointVelocities(const Eigen::VectorXf &velocities)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     joint_velocities_ = velocities;
 }
 
+/**
+ * @brief 更新基态角速度实现。
+ * @param ang_vel 基态角速度向量
+ */
 void DataStore::UpdateBaseAngularVelocities(const Eigen::VectorXf &ang_vel)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     base_ang_vel_ = ang_vel;
 }
 
+/**
+ * @brief 更新最后动作实现。
+ * @param actions 最后动作向量
+ */
 void DataStore::UpdateLastActions(const Eigen::VectorXf &actions)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     last_actions_ = actions;
 }
 
+/**
+ * @brief 更新机器人四元数实现。
+ * @param robot_quat 机器人四元数
+ */
 void DataStore::UpdateRobotQuat(const Eigen::Quaternionf &robot_quat)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     robot_quat_ = robot_quat;
 }
 
+/**
+ * @brief 更新cmd vel指令实现。
+ * @param cmd_Vel cmd vel指令向量
+ */
 void DataStore::UpdateCmdVel(const Eigen::VectorXf &cmd_Vel)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     cmd_vel_ = cmd_Vel.cwiseProduct(gamepad_cmd_vel);
 }
 
+/**
+ * @brief 获取cmd vel指令实现。
+ * @return cmd vel指令向量
+ */
 Eigen::VectorXf DataStore::GetCmdVel() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return cmd_vel_;
 }
 
+/**
+ * @brief 获取重力方向实现。
+ * @return 重力方向向量
+ */
 Eigen::Vector3f DataStore::get_gravity_orientation() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -119,6 +156,10 @@ Eigen::Vector3f DataStore::get_gravity_orientation() const
     return gravity_orientation;
 }
 
+/**
+ * @brief 获取关节位置实现。
+ * @return 关节位置向量
+ */
 Eigen::VectorXf DataStore::GetJointPositions() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -133,6 +174,10 @@ Eigen::VectorXf DataStore::GetJointPositions() const
     return new_joint_positions_;
 }
 
+/**
+ * @brief 获取关节速度实现。
+ * @return 关节速度向量
+ */
 Eigen::VectorXf DataStore::GetJointVelocities() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -145,18 +190,33 @@ Eigen::VectorXf DataStore::GetJointVelocities() const
     return new_joint_velocities_;
 }
 
+
+/**
+ * @brief 获取基态角速度实现。
+ * @return 基态角速度向量
+ */
 Eigen::VectorXf DataStore::GetBaseAngularVelocities() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return base_ang_vel_;
 }
 
+/**
+ * @brief 获取最后动作实现。
+ * @return 最后动作向量
+ */
 Eigen::VectorXf DataStore::GetLastActions() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return last_actions_;
 }
 
+/**
+ * @brief 通过 time_step 索引获取对应的关节位置命令
+ * @param time_step 时间步长
+ * @return 运动关节位置命令向量
+ * @note 如果未加载运动数据，抛出异常并返回零向量, 如果索引无效，抛出异常并返回零向量
+ */
 Eigen::VectorXf DataStore::GetMotionJointPosCommand(float time_step) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -175,6 +235,12 @@ Eigen::VectorXf DataStore::GetMotionJointPosCommand(float time_step) const
     return motion_loader_->getJointPos(index); // 返回指定行的 VectorXf
 }
 
+/**
+ * @brief 通过 time_step 索引获取对应的关节速度命令
+ * @param time_step 时间步长
+ * @return 运动关节速度命令向量
+ * @note 如果未加载运动数据，抛出异常并返回零向量, 如果索引无效，抛出异常并返回零向量
+ */
 Eigen::VectorXf DataStore::GetMotionJointVelCommand(float time_step) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -194,6 +260,13 @@ Eigen::VectorXf DataStore::GetMotionJointVelCommand(float time_step) const
     return motion_loader_->getJointVel(index); // 返回指定行的 VectorXf
 }
 
+
+/**
+ * @brief 通过 time_step 索引计算对应的运动参考方向矩阵
+ * @param time_step 时间步长
+ * @return 运动参考方向矩阵
+ * @note 如果未加载运动数据，抛出异常并返回零矩阵, 如果索引无效，抛出异常并返回零矩阵
+ */
 Eigen::Matrix3f DataStore::ComputeMotionRefOriMatrix(float time_step) const
 { // Q1的imu是放在torsorlink的
     // std::lock_guard<std::mutex> lock(mutex_);
@@ -205,7 +278,7 @@ Eigen::Matrix3f DataStore::ComputeMotionRefOriMatrix(float time_step) const
     }
 
     int index = static_cast<int>(time_step); // 将 time_step 转为 int 作为索引
-    auto ref_body_quats = motion_loader_->getBodyQuatW(index);
+    auto ref_body_quats = motion_loader_->getBodyQuatW(index); // 获取body 四元数数据 世界坐标系
     Eigen::VectorXf joint_angle_ = joint_positions_;
     // std::cout << "new_joint_positions_: " << current_joint_positions_.transpose() << std::endl;
     for (size_t i = 0; i < num_actions_; i++)
@@ -216,9 +289,9 @@ Eigen::Matrix3f DataStore::ComputeMotionRefOriMatrix(float time_step) const
     Eigen::Quaternionf joint_quat(joint_rotation);
     Eigen::Quaternionf robot_torsor_quat_ = robot_quat_ * joint_quat;  // torsor姿态 = 父link姿态 * 关节旋转
 
-    Eigen::Vector4f ref_quat_vec = ref_body_quats.row(7);
+    Eigen::Vector4f ref_quat_vec = ref_body_quats.row(7); // torsorlink在第7个body
     Eigen::Quaternionf ref_quat(ref_quat_vec(0), ref_quat_vec(1), ref_quat_vec(2), ref_quat_vec(3));
     Eigen::Matrix3f robot_rot = robot_torsor_quat_.inverse().toRotationMatrix();
     Eigen::Matrix3f ref_rot = ref_quat.toRotationMatrix();
-    return robot_rot * ref_rot; 
+    return robot_rot * ref_rot;  // 矩阵相乘
 }

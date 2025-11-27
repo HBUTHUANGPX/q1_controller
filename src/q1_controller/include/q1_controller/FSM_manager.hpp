@@ -14,6 +14,13 @@ enum class FSM_state : int
     rl_run_state = 10, // RL control
 };
 
+/**
+ * @brief FSM管理类，用于处理手柄输入并管理有限状态机（FSM）。
+ *
+ * 订阅手柄消息，根据按键组合切换状态。
+ * 提供线程安全的状态访问接口。
+ * 集成ROS定时器定期检查状态切换条件。
+ */
 class FSM_manager
 {
   public:

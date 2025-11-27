@@ -5,6 +5,10 @@
 #include "network_io.hpp"
 #include <yaml-cpp/yaml.h> // 假设 YAML 用于配置
 #include <iostream>
+
+/**
+ * @brief MLP 网络输入输出处理类，继承自 NetworkIOBase。
+ */
 class MLPNetworkIO : public NetworkIOBase
 {
   public:

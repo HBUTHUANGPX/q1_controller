@@ -1,11 +1,16 @@
 #include "../../include/q1_controller/FSM_manager.hpp"
 
+/**
+ * @brief 构造函数FSM_manager，初始化FSM管理器。
+ * @param node ROS节点指针
+ * @param data_store 共享数据存储指针
+ */
 FSM_manager::FSM_manager(rclcpp::Node *node, std::shared_ptr<DataStore> data_store)
     : node_(node), data_store_(data_store)
 {
     printf("FSM_manager:==============\r\n");
     joy_sub_ = node_->create_subscription<q1_controller::msg::XboxJoy>(
-        "/gamepad_data", 10, std::bind(&FSM_manager::joyCallback, this, std::placeholders::_1));
+        "/gamepad_data", 10, std::bind(&FSM_manager::joyCallback, this, std::placeholders::_1)); // 订阅手柄消息
     printf("FSM_manager: joy_sub_ okr\n");
 
     // 新增：创建定时器，周期100ms，用于状态切换检查
@@ -20,9 +25,9 @@ FSM_manager::FSM_manager(rclcpp::Node *node, std::shared_ptr<DataStore> data_sto
     a_pressed_ = false;
     state_transition_srv_ = node_->create_service<q1_controller::srv::StateTransition>(
         "/state_transition",
-        std::bind(&FSM_manager::stateTransitionServiceCallback, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&FSM_manager::stateTransitionServiceCallback, this, std::placeholders::_1, std::placeholders::_2)); // 替换为自定义服务
     printf("FSM_manager: state_transition_srv_ okr\n");
-    state_publisher_ = node_->create_publisher<std_msgs::msg::Int32>("/robot_state", 10);    
+    state_publisher_ = node_->create_publisher<std_msgs::msg::Int32>("/robot_state", 10);    // 状态发布
     last_transition_success_ = false;
     printf("FSM_manager: okr\n");
 }
@@ -70,6 +75,11 @@ void FSM_manager::stateTransitionServiceCallback(const std::shared_ptr<q1_contro
     last_transition_success_ = success; // 存储结果，用于 callback
     RCLCPP_INFO(node_->get_logger(), "服务响应: %s", message.c_str());
 }
+
+/**
+ * @brief 手柄回调函数实现。
+ * @param msg 手柄消息指针 
+ */
 void FSM_manager::joyCallback(const q1_controller::msg::XboxJoy::SharedPtr msg)
 {
     // RCLCPP_INFO(node_->get_logger(), "joyCallback.");
@@ -109,6 +119,9 @@ void FSM_manager::joyCallback(const q1_controller::msg::XboxJoy::SharedPtr msg)
     // RCLCPP_INFO(node_->get_logger(), "joyCallback ok.");
 }
 
+/**
+ * @brief 状态切换定时器回调函数实现。
+ */
 void FSM_manager::stateTransitionCallback()
 {
     // 在此处检查按键组合并执行状态切换
@@ -119,37 +132,37 @@ void FSM_manager::stateTransitionCallback()
         RCLCPP_INFO(node_->get_logger(), "基于 service 响应确认状态更新。");
         last_transition_success_ = false;  // 重置
     }
-    if (lt_pressed_ && b_pressed_)
+    if (lt_pressed_ && b_pressed_) // LT + B  仅从 rl_run_state 切换回 default_state
     {
-        if (FSM_state_ == FSM_state::rl_run_state)
+        if (FSM_state_ == FSM_state::rl_run_state) //确认当前状态是 rl_run_state
         {
-            FSM_state_ = FSM_state::default_state;
+            FSM_state_ = FSM_state::default_state; // 切换到 default_state
             RCLCPP_INFO(node_->get_logger(), "change state from rl_run_state to default_state.");
         }
     }
-    else if (lt_pressed_ && a_pressed_)
+    else if (lt_pressed_ && a_pressed_) // LT + A 从 default_state 切换到 rl_run_state
     {
-        if (FSM_state_ == FSM_state::default_state) // 替换为您的实际条件
+        if (FSM_state_ == FSM_state::default_state) // 确认当前状态是 default_state
         {
-            FSM_state_ = FSM_state::rl_run_state;
+            FSM_state_ = FSM_state::rl_run_state; // 切换到 rl_run_state
             RCLCPP_INFO(node_->get_logger(), "change state from default_state to rl_run_state.");
         }
     }
-    else if (lt_pressed_ && start_pressed_)
+    else if (lt_pressed_ && start_pressed_) // LT + start 从 init_state 切换到 default_state
     {
-        if (FSM_state_ == FSM_state::init_state)
+        if (FSM_state_ == FSM_state::init_state) // 确认当前状态是 init_state
         {
-            FSM_state_ = FSM_state::default_state;
+            FSM_state_ = FSM_state::default_state; // 切换到 default_state
             RCLCPP_INFO(node_->get_logger(), "change state from init_state to default_state.");
         }
     }
-    else if (lt_pressed_ && back_pressed_)
+    else if (lt_pressed_ && back_pressed_) // LT + back 从 default_state 或 rl_run_state 切换到 init_state
     {
-        FSM_state_ = FSM_state::init_state;
+        FSM_state_ = FSM_state::init_state; // 切换到 init_state
         RCLCPP_INFO(node_->get_logger(), "change state to init_state.");
     }
-    std_msgs::msg::Int32 state_msg;
-    state_msg.data = static_cast<int>(FSM_state_);
+    std_msgs::msg::Int32 state_msg; 
+    state_msg.data = static_cast<int>(FSM_state_); 
     state_publisher_->publish(state_msg);  // 假设有状态发布器
     // 可选：添加日志或通知，例如RCLCPP_INFO(node_->get_logger(), "Current FSM state: %d",
     // static_cast<int>(FSM_state_));

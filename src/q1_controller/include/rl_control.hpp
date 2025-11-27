@@ -21,6 +21,12 @@
 #include "../include/q1_controller/inference_base.hpp"
 #include "../include/q1_controller/mlp_network_io.hpp"
 
+/**
+ * @brief rl_control类：实现基于强化学习的控制逻辑。
+ *
+ * 订阅IMU数据，发布重置零点和目标位置数据集。
+ * 管理FSM状态、运动数据加载、观测管理和推理模块。
+ */
 class rl_control
 {
   private:

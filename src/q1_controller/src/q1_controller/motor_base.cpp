@@ -3,6 +3,14 @@
 
 /**
  * @brief MotorBase构造函数实现。
+ * @param name 电机名称。
+ * @param kp P增益。
+ * @param kd D增益。
+ * @param max_torque 最大扭矩。
+ * @param default_pos 默认位置。
+ * @param id 电机ID。
+ * @param ec_id 电机在以太网中的ID。
+ * @param direction 电机方向（1或-1）。
  */
 MotorBase::MotorBase(const std::string &name, float kp, float kd, float max_torque, float default_pos, int id,
                      int ec_id,int direction)

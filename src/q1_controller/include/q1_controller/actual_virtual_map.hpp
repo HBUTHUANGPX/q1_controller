@@ -5,6 +5,11 @@
 #include <iostream>
 #include <tuple>
 
+/**
+ * @brief actual_virtual_map类：实现真实关节与虚拟关节之间的映射关系。
+ *
+ * 包含前向运动学、逆运动学和速度映射等功能。
+ */
 class actual_virtual_map
 {
   private:
