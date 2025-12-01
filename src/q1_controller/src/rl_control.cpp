@@ -2,7 +2,7 @@
 
 void rl_control::_init_deploy_module()
 {   
-    /* 初始化网络输入输出模块 */
+    /* 初始化网络输入输出模块  */
     auto network_io = std::make_shared<MLPNetworkIO>(config_);
     printf("rl_control:network_io ok\r\n");
 #if defined(USE_OPENVINO)
