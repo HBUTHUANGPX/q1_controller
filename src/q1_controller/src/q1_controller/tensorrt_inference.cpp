@@ -14,7 +14,7 @@ using namespace nvonnxparser;
  */
 TensorRTInference::TensorRTInference(const YAML::Node &config, std::shared_ptr<NetworkIOBase> network_io,
                                      std::shared_ptr<MotorManager> motor_manager)
-    : InferenceBase(config, network_io, motor_manager), input_first_flag(true)
+    : InferenceBase(config, network_io, motor_manager)
 {
     // 初始化 TensorRT Runtime
     runtime_ = std::unique_ptr<IRuntime>(createInferRuntime(logger_));
@@ -38,12 +38,16 @@ TensorRTInference::TensorRTInference(const YAML::Node &config, std::shared_ptr<N
  * 销毁 CUDA 流，确保无内存泄漏。
  */
 TensorRTInference::~TensorRTInference()
-{   
+{
     // 清理缓冲区
     for (auto buf : input_buffers)
+    {
         cudaFree(buf);
+    }
     for (auto buf : output_buffers)
+    {
         cudaFree(buf);
+    }
     cudaStreamDestroy(stream_);
 }
 
@@ -55,6 +59,11 @@ TensorRTInference::~TensorRTInference()
  */
 void TensorRTInference::LoadModel(const std::string &model_path)
 {
+    // 获取动态名称和形状
+    const auto &config_input_names = network_io_->GetInputNames();
+    const auto &config_output_names = network_io_->GetOutputNames();
+    const auto &config_input_shapes = network_io_->GetInputShapes();
+
     // 尝试加载引擎文件
     std::string engine_path = model_path.substr(0, model_path.find_last_of('.')) + ".engine";
     std::ifstream engine_file(engine_path, std::ios::binary);
@@ -87,7 +96,7 @@ void TensorRTInference::LoadModel(const std::string &model_path)
         auto config = std::unique_ptr<IBuilderConfig>(builder->createBuilderConfig());
         config->setMemoryPoolLimit(MemoryPoolType::kWORKSPACE, 1U << 30); // 1GB 工作空间
         config->setFlag(BuilderFlag::kFP16);                              // 启用 FP16 优化
-
+#if 0
         // 设置优化配置文件
         auto profile = builder->createOptimizationProfile();
         Dims obs_dims = network->getInput(0)->getDimensions();
@@ -98,6 +107,25 @@ void TensorRTInference::LoadModel(const std::string &model_path)
         profile->setDimensions("time_step", OptProfileSelector::kMIN, time_dims);
         profile->setDimensions("time_step", OptProfileSelector::kOPT, time_dims);
         profile->setDimensions("time_step", OptProfileSelector::kMAX, time_dims);
+#endif
+        // 动态设置 profile
+        auto profile = builder->createOptimizationProfile();
+        for (size_t i = 0; i < config_input_names.size(); ++i)
+        {
+            std::string name = config_input_names[i];
+            Dims dims;
+            dims.nbDims = config_input_shapes[i].size();
+            for (int j = 0; j < dims.nbDims; ++j)
+            {
+                dims.d[j] = static_cast<int>(config_input_shapes[i](j));
+            }
+            // 如果 batch (d[0]) == -1，使用 1 作为 min/opt/max placeholder
+            if (dims.d[0] == -1)
+                dims.d[0] = 1;
+            profile->setDimensions(name.c_str(), OptProfileSelector::kMIN, dims);
+            profile->setDimensions(name.c_str(), OptProfileSelector::kOPT, dims);
+            profile->setDimensions(name.c_str(), OptProfileSelector::kMAX, dims);
+        }
         config->addOptimizationProfile(profile);
 
         auto serialized_engine = std::unique_ptr<IHostMemory>(builder->buildSerializedNetwork(*network, *config));
@@ -121,9 +149,10 @@ void TensorRTInference::LoadModel(const std::string &model_path)
     {
         throw std::runtime_error("TensorRTInference: 创建执行上下文失败。");
     }
-
     // 查询并存储输入/输出名称
     int num_io_tensors = engine_->getNbIOTensors();
+    input_names_.clear();
+    output_names_.clear();
     for (int i = 0; i < num_io_tensors; ++i)
     {
         std::string name = engine_->getIOTensorName(i);
@@ -136,32 +165,17 @@ void TensorRTInference::LoadModel(const std::string &model_path)
             output_names_.push_back(name);
         }
     }
-
+#if 0
     // 验证输入/输出数量
     if (input_names_.size() != 2 || output_names_.size() != 7)
     {
         throw std::runtime_error("TensorRTInference: 输入/输出数量不匹配预期（2输入 + 7输出）。");
     }
-
-    // 存储输入形状
-    obs_shape_ = std::vector<int64_t>(engine_->getTensorShape("obs").d,
-                                      engine_->getTensorShape("obs").d + engine_->getTensorShape("obs").nbDims);
-    time_shape_ = {1, 1};
-
-    rclcpp::Logger logger_(rclcpp::get_logger("TensorRTInference"));
-
-    // RCLCPP_INFO(logger_, "准备 CUDA 输出缓冲区");
-    // // 准备 CUDA 输出缓冲区
-    // output_buffers = std::vector<void *>(output_names_.size());
-    // output_sizes = std::vector<size_t>(output_names_.size());
-    // for (size_t i = 0; i < output_names_.size(); ++i)
-    // {
-    //     std::string name = output_names_[i];
-    //     Dims dims = engine_->getTensorShape(name.c_str());
-    //     output_sizes[i] = getTensorSize(dims) * sizeof(float);
-    //     cudaMalloc(&output_buffers[i], output_sizes[i]);
-    //     context_->setOutputTensorAddress(name.c_str(), output_buffers[i]);
-    // }
+#endif
+    if (input_names_ != config_input_names || output_names_ != config_output_names)
+    {
+        throw std::runtime_error("TensorRTInference: 输入/输出名称不匹配 YAML 配置。");
+    }
 }
 
 /**
@@ -173,51 +187,65 @@ void TensorRTInference::LoadModel(const std::string &model_path)
  */
 std::map<std::string, Eigen::MatrixXf> TensorRTInference::Infer(const std::vector<Eigen::MatrixXf> &inputs)
 {
-    // std::lock_guard<std::mutex> lock(infer_mutex_);
-
     if (inputs.size() != input_names_.size())
     {
         throw std::runtime_error("TensorRTInference: 输入数量不匹配。");
     }
 
-    rclcpp::Logger logger_(rclcpp::get_logger("TensorRTInference"));
-    // if (input_first_flag)
+    // rclcpp::Logger logger_(rclcpp::get_logger("TensorRTInference"));
+    // input_buffers = std::vector<void *>(inputs.size());
+    // for (size_t i = 0; i < inputs.size(); ++i)
     // {
-    //     // 准备 CUDA 输入缓冲区
-    //     RCLCPP_INFO(logger_, "准备 CUDA 输入缓冲区");
-    //     input_buffers = std::vector<void *>(inputs.size());
-    //     for (size_t i = 0; i < inputs.size(); ++i)
-    //     {
-    //         std::string name = input_names_[i];
-    //         size_t size = getTensorSize(engine_->getTensorShape(name.c_str())) * sizeof(float);
-    //         input_buffers[i] = EigenToCudaBuffer(inputs[i], size);
-    //         context_->setInputTensorAddress(name.c_str(), input_buffers[i]);
-    //     }
-    //     input_first_flag = false;
+    //     std::string name = input_names_[i];
+    //     size_t size = getTensorSize(engine_->getTensorShape(name.c_str())) * sizeof(float);
+    //     input_buffers[i] = EigenToCudaBuffer(inputs[i], size);
+    //     context_->setInputTensorAddress(name.c_str(), input_buffers[i]);
     // }
-    // else
-    // {   
-    // }
-    input_buffers = std::vector<void *>(inputs.size());
-    for (size_t i = 0; i < inputs.size(); ++i)
-    {
+    input_buffers.clear();
+    for (size_t i = 0; i < inputs.size(); ++i) {
         std::string name = input_names_[i];
-        size_t size = getTensorSize(engine_->getTensorShape(name.c_str())) * sizeof(float);
-        input_buffers[i] = EigenToCudaBuffer(inputs[i], size);
-        context_->setInputTensorAddress(name.c_str(), input_buffers[i]);
+        Dims dims = engine_->getTensorShape(name.c_str());
+
+        // 处理动态 batch
+        Eigen::Index actual_batch = inputs[i].rows();
+        if (dims.d[0] == -1) dims.d[0] = static_cast<int>(actual_batch);
+
+        size_t size = getTensorSize(dims) * sizeof(float);
+        void *buf = EigenToCudaBuffer(inputs[i], size);
+        input_buffers.push_back(buf);
+        context_->setInputTensorAddress(name.c_str(), buf);
     }
     // RCLCPP_INFO(logger_, "准备 CUDA 输出缓冲区");
     // 准备 CUDA 输出缓冲区
-    output_buffers = std::vector<void *>(output_names_.size());
-    output_sizes = std::vector<size_t>(output_names_.size());
-    for (size_t i = 0; i < output_names_.size(); ++i)
-    {
+    // output_buffers = std::vector<void *>(output_names_.size());
+    // output_sizes = std::vector<size_t>(output_names_.size());
+    // for (size_t i = 0; i < output_names_.size(); ++i)
+    // {
+    //     std::string name = output_names_[i];
+    //     Dims dims = engine_->getTensorShape(name.c_str());
+    //     output_sizes[i] = getTensorSize(dims) * sizeof(float);
+    //     cudaMalloc(&output_buffers[i], output_sizes[i]);
+    //     context_->setOutputTensorAddress(name.c_str(), output_buffers[i]);
+    // }
+
+    output_buffers.clear();
+    output_sizes.clear();
+    for (size_t i = 0; i < output_names_.size(); ++i) {
         std::string name = output_names_[i];
         Dims dims = engine_->getTensorShape(name.c_str());
-        output_sizes[i] = getTensorSize(dims) * sizeof(float);
-        cudaMalloc(&output_buffers[i], output_sizes[i]);
-        context_->setOutputTensorAddress(name.c_str(), output_buffers[i]);
+
+        // 处理动态 batch（假设输出 batch 与输入一致，通常为 1）
+        Eigen::Index actual_batch = inputs.empty() ? 1 : inputs[0].rows();
+        if (dims.d[0] == -1) dims.d[0] = static_cast<int>(actual_batch);
+
+        size_t size = getTensorSize(dims) * sizeof(float);
+        void *buf;
+        cudaMalloc(&buf, size);
+        output_buffers.push_back(buf);
+        output_sizes.push_back(size);
+        context_->setOutputTensorAddress(name.c_str(), buf);
     }
+
     // 执行推理
     // RCLCPP_INFO(logger_, "执行推理");
     if (!context_->enqueueV3(stream_))
@@ -226,18 +254,25 @@ std::map<std::string, Eigen::MatrixXf> TensorRTInference::Infer(const std::vecto
     }
     cudaStreamSynchronize(stream_);
 
-    // RCLCPP_INFO(logger_, "提取输出");
-    // 提取输出（只取 "actions"）
+    // // RCLCPP_INFO(logger_, "提取输出");
+    // // 提取输出（只取 "actions"）
+    // std::map<std::string, Eigen::MatrixXf> outputs;
+    // for (size_t i = 0; i < output_names_.size(); ++i)
+    // {
+    //     std::string name = output_names_[i];
+    //     if (name == "actions")
+    //     {
+    //         outputs[name] = CudaBufferToEigen(output_buffers[i], output_sizes[i] / sizeof(float));
+    //         // std::cout << "Infer: " <<outputs[name] << std::endl;
+    //     }
+    //     // 可扩展提取其他输出
+    // }
     std::map<std::string, Eigen::MatrixXf> outputs;
+    Eigen::Index batch = inputs.empty() ? 1 : inputs[0].rows(); // 假设所有输入 batch 一致
     for (size_t i = 0; i < output_names_.size(); ++i)
     {
         std::string name = output_names_[i];
-        if (name == "actions")
-        {
-            outputs[name] = CudaBufferToEigen(output_buffers[i], output_sizes[i] / sizeof(float));
-            // std::cout << "Infer: " <<outputs[name] << std::endl;
-        }
-        // 可扩展提取其他输出
+        outputs[name] = CudaBufferToEigen(output_buffers[i], output_sizes[i] / sizeof(float), batch);
     }
 
     // RCLCPP_INFO(logger_, "清理缓冲区");
@@ -272,11 +307,18 @@ void *TensorRTInference::EigenToCudaBuffer(const Eigen::MatrixXf &matrix, size_t
  * @param num_elements 元素数量。
  * @return Eigen 矩阵。
  */
-Eigen::MatrixXf TensorRTInference::CudaBufferToEigen(void *buffer, size_t num_elements)
+Eigen::MatrixXf TensorRTInference::CudaBufferToEigen(void *buffer, size_t num_elements, Eigen::Index batch)
 {
+    // std::vector<float> host_data(num_elements);
+    // cudaMemcpy(host_data.data(), buffer, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
+    // return Eigen::Map<Eigen::MatrixXf>(host_data.data(), 1, num_elements);
     std::vector<float> host_data(num_elements);
     cudaMemcpy(host_data.data(), buffer, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
-    return Eigen::Map<Eigen::MatrixXf>(host_data.data(), 1, num_elements);
+
+    if (batch < 1)
+        batch = 1;
+    Eigen::Index flattened = num_elements / batch;
+    return Eigen::Map<Eigen::MatrixXf>(host_data.data(), batch, flattened);
 }
 
 /**
@@ -284,12 +326,27 @@ Eigen::MatrixXf TensorRTInference::CudaBufferToEigen(void *buffer, size_t num_el
  * @param dims 张量形状。
  * @return 元素总数。
  */
-size_t TensorRTInference::getTensorSize(const Dims &dims)
+size_t TensorRTInference::getTensorSize(const Dims &dims, Eigen::Index batch)
 {
+    // size_t size = 1;
+    // for (int i = 0; i < dims.nbDims; ++i)
+    // {
+    //     size *= dims.d[i];
+    // }
+    // return size;
     size_t size = 1;
     for (int i = 0; i < dims.nbDims; ++i)
     {
-        size *= dims.d[i];
+        int d = dims.d[i];
+        if (i == 0 && d < 0)
+        {
+            d = static_cast<int>(batch);
+        }
+        if (d < 0)
+        {
+            throw std::runtime_error("不支持的动态维度。");
+        }
+        size *= d;
     }
     return size;
 }

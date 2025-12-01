@@ -3,11 +3,23 @@
 #define MOTOR_BASE_HPP
 
 #include <string>
+#include <iostream>
 #if defined(USE_TENSORRT)
 #include "rt_comm_inipc/DoubleBuffer.hpp"
 #include "rt_comm_inipc/MotorCommandAPI.hpp"
 #include "rt_comm_inipc/MotorInfo.hpp"
 #include "rt_comm_inipc/rt_ipc.hpp"
+#else
+struct MotorInfo {
+    uint16_t id = 0;      // 电机ID
+    float kp = 0.0f;      // 比例系数
+    float kd = 0.0f;      // 微分系数
+    float pos = 0.0f;     // 位置
+    float vel = 0.0f;     // 速度  
+    float tor = 0.0f;     // 扭矩
+    uint8_t status = 0;   // 状态
+    uint8_t errcode = 0;  // 错误码
+};
 #endif
 /**
  * @brief Motor基类，定义单个电机的基本属性。
@@ -15,6 +27,7 @@
  * 此类包含电机的名称、PD增益（kp、kd）、最大扭矩和默认位置。
  * 设计为抽象基类，可扩展以添加更多功能。
  */
+
 class MotorBase
 {
   public:
@@ -74,7 +87,9 @@ class MotorBase
 
     float getCurrentPos() const
     {
-        return pos_;
+        return pos_ + urdf_offset_;
+        // return pos_ - offset_pos_;
+        // return pos_ + offset_pos_;
     }
     float getCurrentVel() const
     {
@@ -95,7 +110,7 @@ class MotorBase
 
     void writeCurrentPos(float value)
     {
-        pos_ = value * direction_ - offset_pos_;
+        pos_ = value * direction_;
     }
 
     void rewriteCurrentPos(float value)
@@ -125,34 +140,21 @@ class MotorBase
     */
     float getTargetPos()
     {
-#if defined(USE_TENSORRT)
         return motor_data.pos;
-#else
-        return target_pos_;
-#endif
     }
     void setTargetPos(float value) // 将action数据给入
     {
-#if defined(USE_TENSORRT)
-        motor_data.pos = value * direction_ + offset_pos_; // 对于实机，此时需要进行方向转换
-#else
-        target_pos_ = value + offset_pos_;
-#endif
+        motor_data.pos = (value + offset_pos_) * direction_; //  对于实机，此时需要进行方向转换
+        // std::cout << name_ <<" offset_pos_: " << offset_pos_<<"\n";
     }
     void resetTargetPos(float value)
     {
-#if defined(USE_TENSORRT)
         motor_data.pos = value;
-#else
-        target_pos_ = value;
-#endif
     }
-#if defined(USE_TENSORRT)
     MotorInfo getMotorInfo()
     {
         return motor_data;
     }
-#endif
   protected:
     std::string name_;                // 电机名称
     float kp_;                        // P增益
@@ -162,9 +164,7 @@ class MotorBase
     float pos_, vel_, fft_;           // 当前 位置、速度、力矩
     float target_pos_;
     int id_, ec_id_, direction_;
-#if defined(USE_TENSORRT)
     MotorInfo motor_data;
-#endif
 };
 
 #endif // MOTOR_BASE_HPP

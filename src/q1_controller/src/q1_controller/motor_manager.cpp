@@ -20,6 +20,9 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
     ankle_pitch_add_angle_ = config["ankle_pitch_add_angle"].as<float>();
 
     size_t index = 0;
+    std::string deploy_mode_ = config["deploy_mode"].as<std::string>();
+    std::string sim2sim = "sim2sim";
+    std::string sim2real = "sim2real";
     for (const auto &item : config["motors"])
     {
         // 检查item是否为Map且仅有一个键值对
@@ -36,12 +39,18 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
         float kd = params["kd"].as<float>();
         float max_torque = params["torque_max"].as<float>();
         float nominal_pos = params["nominal_pos"].as<float>();
-        float urdf_offset = params["urdf_offset"].as<float>();
         int id = params["id"].as<int>();
         int ec_id = params["ec_id"].as<int>();
-        int direction = params["direction"].as<int>();
+        int direction = 1;
+        float urdf_offset = 0.f;
+        if (deploy_mode_ == sim2real)
+        {
+            direction = params["direction"].as<int>();
+            urdf_offset = params["urdf_offset"].as<float>();
+        }
 
-        auto motor = std::make_shared<MotorBase>(name, kp, kd, max_torque, nominal_pos, urdf_offset, id, ec_id, direction);
+        auto motor =
+            std::make_shared<MotorBase>(name, kp, kd, max_torque, nominal_pos, urdf_offset, id, ec_id, direction);
         motors_.push_back(motor);
         name_to_index_[name] = index++;
         std::cout << name << std::endl;
@@ -108,9 +117,6 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
     }
 #endif
     printf("MotorManager:config joint ok\r\n");
-    std::string deploy_mode_ = config["deploy_mode"].as<std::string>();
-    std::string sim2sim = "sim2sim";
-    std::string sim2real = "sim2real";
     if (sim2sim == deploy_mode_)
     {
         // 创建订阅器
@@ -184,7 +190,6 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
 
     // 反序列化
     // printf("MotorManager:反序列化\r\n");
-#if defined(USE_TENSORRT)
     std::vector<MotorInfo> received_motors;
     if (MotorSerializer::deserialize_array(binary_data, received_motors))
     {
@@ -224,14 +229,14 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
         Eigen::Vector2f vm_R_ankle =
             avm_.velocity_mapping(R_phi_, R_theta_, fk_R_ankle(0), fk_R_ankle(1), R_phi_dot_, R_theta_dot_);
         L_ankle_pitch_joint_->rewriteCurrentPos(fk_L_ankle(0) - ankle_pitch_add_angle_ * 0);
-        L_ankle_pitch_joint_->setCurrentVel(vm_L_ankle(0));
+        L_ankle_pitch_joint_->rewriteCurrentVel(vm_L_ankle(0));
         L_ankle_roll_joint_->rewriteCurrentPos(-fk_L_ankle(1));
-        L_ankle_roll_joint_->setCurrentVel(-vm_L_ankle(1));
+        L_ankle_roll_joint_->rewriteCurrentVel(-vm_L_ankle(1));
 
         R_ankle_pitch_joint_->rewriteCurrentPos(fk_R_ankle(0) + ankle_pitch_add_angle_ * 0);
-        R_ankle_pitch_joint_->setCurrentVel(vm_R_ankle(0));
+        R_ankle_pitch_joint_->rewriteCurrentVel(vm_R_ankle(0));
         R_ankle_roll_joint_->rewriteCurrentPos(fk_R_ankle(1));
-        R_ankle_roll_joint_->setCurrentVel(vm_R_ankle(1));
+        R_ankle_roll_joint_->rewriteCurrentVel(vm_R_ankle(1));
 
         for (size_t i = 0; i < motors_.size(); i++)
         {
@@ -244,7 +249,7 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
         for (const auto &name : joint_index_in_need)
         {
             size_t motor_index = joint_indices_in_motors[name];
-            current_pos_[i] = motors_[motor_index]->getCurrentPos();
+            current_pos_[i] = motors_[motor_index]->getCurrentPos() - motors_[motor_index]->getNominalPos() ;
             current_vel_[i] = motors_[motor_index]->getCurrentVel();
             ++i;
         }
@@ -260,7 +265,6 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
     {
         std::cerr << "Failed to deserialize motor data" << std::endl;
     }
-#endif
 }
 
 /**
@@ -375,7 +379,7 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
         cmd.ff_effort = 0.0; // 默认0
         msg->commands.push_back(cmd);
 #if defined(USE_TENSORRT)
-        control_data.at(i) = motors_in_id_[i]->getMotorInfo();//TODO： 检查冲突
+        control_data.at(i) = motors_in_id_[i]->getMotorInfo(); // TODO： 检查冲突
 #endif
     }
     target_pos_pub_->publish(std::move(msg));

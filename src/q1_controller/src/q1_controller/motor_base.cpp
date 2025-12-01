@@ -17,5 +17,5 @@ MotorBase::MotorBase(const std::string &name, float kp, float kd, float max_torq
     motor_data.vel = 0;
     motor_data.tor = 0;
 #endif
-    offset_pos_ = nominal_pos_ + urdf_offset_;
+    offset_pos_ = nominal_pos_ - urdf_offset_;
 }

@@ -66,18 +66,18 @@ motors:
 
 - pelvis_joint:           { id: 28, ec_id:   3, direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:    0.0, urdf_offset: 0.0 }
 
-- L_shoulder_pitch_joint: { id:  0, ec_id: 101, direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:    0.1, urdf_offset: 0.0 }
-- L_shoulder_roll_joint:  { id:  1, ec_id: 102, direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:    0.2, urdf_offset: 0.15 }
+- L_shoulder_pitch_joint: { id:  0, ec_id: 101, direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:    0.0, urdf_offset: 0.0 }
+- L_shoulder_roll_joint:  { id:  1, ec_id: 102, direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:   0.25, urdf_offset: 0.15 }
 - L_shoulder_yaw_joint:   { id:  2, ec_id: 103, direction: -1, kp:  70.0, kd: 2.0, torque_max:  23.0, nominal_pos:    0.0, urdf_offset: 0.0 }
-- L_elbow_joint:          { id:  3, ec_id: 104, direction:  1, kp:  70.0, kd: 2.0, torque_max:  23.0, nominal_pos:   -0.2, urdf_offset: 0.0 }
+- L_elbow_joint:          { id:  3, ec_id: 104, direction:  1, kp:  70.0, kd: 2.0, torque_max:  23.0, nominal_pos:    0.0, urdf_offset: 0.0 }
 - L_forearm_yaw_joint:    { id:  4, ec_id: 105, direction: -1, kp:  20.0, kd: 1.0, torque_max:   8.3, nominal_pos:    0.0, urdf_offset: 0.0 }
 - L_wrist_roll_joint:     { id:  5, ec_id: 106, direction: -1, kp:  20.0, kd: 1.0, torque_max:   3.3, nominal_pos:    0.0, urdf_offset: 0.0 }
 - L_wrist_pitch_joint:    { id:  6, ec_id: 107, direction:  1, kp:  20.0, kd: 1.0, torque_max:   3.3, nominal_pos:    0.0, urdf_offset: 0.0 }
 
-- R_shoulder_pitch_joint: { id:  7, ec_id: 201, direction: -1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:    0.1, urdf_offset: 0.0 }
-- R_shoulder_roll_joint:  { id:  8, ec_id: 202, direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:   -0.2, urdf_offset: -0.15 }
+- R_shoulder_pitch_joint: { id:  7, ec_id: 201, direction: -1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:    0.0, urdf_offset: 0.0 }
+- R_shoulder_roll_joint:  { id:  8, ec_id: 202, direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, nominal_pos:  -0.25, urdf_offset: -0.15 }
 - R_shoulder_yaw_joint:   { id:  9, ec_id: 203, direction: -1, kp:  70.0, kd: 2.0, torque_max:  23.0, nominal_pos:    0.0, urdf_offset: 0.0 }
-- R_elbow_joint:          { id: 10, ec_id: 204, direction: -1, kp:  70.0, kd: 2.0, torque_max:  23.0, nominal_pos:   -0.2, urdf_offset: 0.0 }
+- R_elbow_joint:          { id: 10, ec_id: 204, direction: -1, kp:  70.0, kd: 2.0, torque_max:  23.0, nominal_pos:    0.0, urdf_offset: 0.0 }
 - R_forearm_yaw_joint:    { id: 11, ec_id: 205, direction: -1, kp:  20.0, kd: 1.0, torque_max:   8.3, nominal_pos:    0.0, urdf_offset: 0.0 }
 - R_wrist_roll_joint:     { id: 12, ec_id: 206, direction:  1, kp:  20.0, kd: 1.0, torque_max:   3.3, nominal_pos:    0.0, urdf_offset: 0.0 }
 - R_wrist_pitch_joint:    { id: 13, ec_id: 207, direction: -1, kp:  20.0, kd: 1.0, torque_max:   3.3, nominal_pos:    0.0, urdf_offset: 0.0 }
@@ -88,6 +88,10 @@ motors:
 joint_index_in_need: [ 
   "L_hip_roll_joint", "L_hip_yaw_joint", "L_hip_pitch_joint", "L_knee_joint", "L_ankle_pitch_joint", "L_ankle_roll_joint", 
   "R_hip_roll_joint", "R_hip_yaw_joint", "R_hip_pitch_joint", "R_knee_joint", "R_ankle_pitch_joint", "R_ankle_roll_joint", 
+  "pelvis_joint", 
+  "L_shoulder_pitch_joint", "L_shoulder_roll_joint", "L_shoulder_yaw_joint", "L_elbow_joint", "L_forearm_yaw_joint", "L_wrist_roll_joint", "L_wrist_pitch_joint", 
+  "R_shoulder_pitch_joint", "R_shoulder_roll_joint", "R_shoulder_yaw_joint", "R_elbow_joint", "R_forearm_yaw_joint", "R_wrist_roll_joint", "R_wrist_pitch_joint", 
+  "head_yaw_joint", "head_pitch_joint" 
 ] #motors中申明的电机不一定在推理相关的过程中被使用,joint_index_in_need这个索引是基于gym/mujoco的顺序,将决定哪些电机参与推理
 
 isaac_sim_trans_flag: false # true , false

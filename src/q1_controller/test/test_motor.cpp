@@ -80,6 +80,7 @@ class LowlevelManager : public rclcpp::Node
             /* code */
             rl_control_->reset_orientation_z_axis();
             return motor_manager_->jointCommand(scaled_action * 0,false,false);
+            // return motor_manager_->jointCommand(scaled_action * 0,true,false);
         }
         else if (state == FSM_state::default_state)
         {
