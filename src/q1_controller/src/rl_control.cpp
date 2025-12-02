@@ -153,6 +153,28 @@ Eigen::VectorXf rl_control::inference()
     {
         time_step_ *= 0.0;
     }
+
+    // std_msgs::msg::Float32MultiArray obs_msg;
+    // obs_msg.data.resize(observations_.size());  // 假设observations_为行向量，展平为一维
+    // Eigen::Map<Eigen::VectorXf>(obs_msg.data.data(), observations_.size()) = observations_;
+    // observations_pub_->publish(obs_msg);
+    // RCLCPP_INFO(node_->get_logger(), "Published observations_ to /observations.");
+
+    // std_msgs::msg::Float32MultiArray action_msg;
+    // action_msg.data.resize(scaled_action.size());
+    // Eigen::Map<Eigen::VectorXf>(action_msg.data.data(), scaled_action.size()) = scaled_action;
+    // scaled_action_pub_->publish(action_msg);
+    // RCLCPP_INFO(node_->get_logger(), "Published scaled_action to /scaled_action.");
+    std_msgs::msg::Float32MultiArray obs_msg;
+    obs_msg.data.resize(observations_.size());  // observations_ 为 1 行矩阵，size() 为元素总数
+    Eigen::Map<Eigen::VectorXf>(obs_msg.data.data(), observations_.size()) = observations_.reshaped();  // 将矩阵展平为向量
+    observations_pub_->publish(obs_msg);
+
+    // 新增：发布 scaled_action 作为话题消息
+    std_msgs::msg::Float32MultiArray action_msg;
+    action_msg.data.resize(scaled_action.size());  // scaled_action 为向量
+    Eigen::Map<Eigen::VectorXf>(action_msg.data.data(), scaled_action.size()) = scaled_action;  // 直接映射
+    scaled_action_pub_->publish(action_msg);
     return scaled_action;
 }
 
@@ -180,6 +202,10 @@ rl_control::rl_control(rclcpp::Node *node, const YAML::Node &config, std::shared
     }
     reset_zero_pub_ = node_->create_publisher<std_msgs::msg::Bool>("/reset_zero", 10);
     mocap_dataset_pub_ = node_->create_publisher<q1_controller::msg::Dataset>("/Dataset", 10);
+
+    observations_pub_ = node_->create_publisher<std_msgs::msg::Float32MultiArray>("/observations", 10);
+    scaled_action_pub_ = node_->create_publisher<std_msgs::msg::Float32MultiArray>("/scaled_action", 10);
+    
     std_msgs::msg::Bool flag;
     flag.data = true;
     reset_zero_pub_->publish(flag);

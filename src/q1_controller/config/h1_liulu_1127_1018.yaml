@@ -1,5 +1,7 @@
+# LIULU
 # policy_path: "/home/niic/RL_control/Q1_control/src/q1_controller/policy/2025-10-31_21-45-24_Q1_251021_03_walk_120Hz_67500/policy.onnx"
-policy_path: "src/q1_controller/policy/2025-11-25_20-47_Q1_lilu_AMP/policy.onnx"
+# policy_path: "src/q1_controller/policy/LIULU/2025_1201_1833_1K5/policy.onnx"
+policy_path: "src/q1_controller/policy/LIULU/2025_1201_1833_4W/policy.onnx"
 # policy_path: "src/q1_controller/policy/2025-11-25_20-47_Q1_lilu_AMP/policy_wo_dynax.onnx"
 
 # mocap_path: "/home/niic/RL_control/Q1_control/src/q1_controller/artifacts/Q1_251021_03_saw_120Hz_v3/motion.npz"
@@ -14,9 +16,9 @@ decimation: 10
 action_scale: 0.25
 recal_action_scale_by_tq_max_and_kp: false # true, false new_scale = scale*torque_max/kp
 action_limit: 10.0
-gamepad_cmd_vel_scale_vx: 1.0
+gamepad_cmd_vel_scale_vx: 1.5
 gamepad_cmd_vel_scale_vy: 0.0
-gamepad_cmd_vel_scale_wz: 0.5
+gamepad_cmd_vel_scale_wz: 1.0
 
 inputs:
 - name: "obs"

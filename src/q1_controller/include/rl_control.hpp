@@ -20,6 +20,7 @@
 #include "../include/q1_controller/observation_manager.hpp"
 #include "../include/q1_controller/inference_base.hpp"
 #include "../include/q1_controller/mlp_network_io.hpp"
+#include <std_msgs/msg/float32_multi_array.hpp>  // 修改：新增头文件，用于Float32MultiArray消息
 
 class rl_control
 {
@@ -55,6 +56,8 @@ class rl_control
     bool fresh_reference_quat_flag;
     float time_step_;
 
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr observations_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr scaled_action_pub_;
 #if defined(USE_TENSORRT)
     std::unique_ptr<RTServer> robotcontrol_server;
     std::unique_ptr<RTClient> robotcontrol_client;

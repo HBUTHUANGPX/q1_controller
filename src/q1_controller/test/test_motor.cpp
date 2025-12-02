@@ -30,7 +30,7 @@ class LowlevelManager : public rclcpp::Node
     /**
      * @brief 构造函数，加载配置并初始化组件。
      */
-    LowlevelManager() : Node("low_level_manager_node"), time_step_(0.0)
+    LowlevelManager() : Node("low_level_manager_node"), time_step_(0.0), previous_state_(FSM_state::init_state)
     {
         printf("TestMotor:YAML \r\n");
         config_ = YAML::LoadFile("src/q1_controller/config/h1.yaml");
@@ -53,9 +53,10 @@ class LowlevelManager : public rclcpp::Node
 
         rl_control_ =
             std::make_shared<rl_control>(this, config_, fsm_manager_, motion_loader_, data_store_, motor_manager_);
-        RCLCPP_INFO(this->get_logger(), "TestMotor:motor_manager_ ok.");
+        RCLCPP_INFO(this->get_logger(), "TestMotor:rl_control_ ok.");
         _init_deploy_mode();
         RCLCPP_INFO(this->get_logger(), "TestMotor:_init_deploy_mode ok.");
+        first_init_flag = true;
     };
 
     /**
@@ -118,12 +119,13 @@ class LowlevelManager : public rclcpp::Node
     float dt_;
     int num_actions_;
     Eigen::VectorXf scaled_action;
-
     rclcpp::TimerBase::SharedPtr timer_;
 #if defined(USE_TENSORRT)
     std::unique_ptr<RTServer> robotcontrol_server;
     std::unique_ptr<RTClient> robotcontrol_client;
 #endif
+    FSM_state previous_state_; // 修改：新增成员变量，用于跟踪上一个FSM状态
+    bool first_init_flag;
 };
 void LowlevelManager::_init_deploy_mode()
 {

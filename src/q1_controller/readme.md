@@ -53,3 +53,9 @@ sudo chmod -R 777 /dev/tty* && sudo chmod -R 777 /dev/input/js*
 sudo -E bash sudoros2.sh run q1_controller gamepad_publisher.py
 sudo -E bash sudoros2.sh launch hipnuc_imu imu_spec_msg.launch.py
 sudo -E bash sudoros2.sh launch q1_controller robot_state_publisher.launch.py
+
+
+
+sudo -E bash sudoros2.sh bag record /joint_states
+
+sudo -E export PYTHONPATH=/home/niic/tmp/ros2_install/lib/python3.10/site-packages:$PYTHONPATH && source /home/niic/tmp/ros2_install/setup.bash && source /home/niic/RL_control/Q1_control/install/setup.bash && [bag record /joint_states /observations /scaled_action -o 1202_1543](../../sudoros2.sh)
