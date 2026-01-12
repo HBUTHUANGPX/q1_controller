@@ -11,4 +11,7 @@ source /home/niic/tmp/ros2_install/setup.bash
 source /home/niic/RL_control/Q1_control/install/setup.bash
 
 # 执行ROS2命令，使用脚本参数替换
-ros2 bag record /joint_states /observations /scaled_action -o 1202_1602_liulu_amp
+ros2 topic echo /gamepad_data
+# ros2 topic echo /joint_states/position
+# ros2 bag record /joint_states /observations /scaled_action -o 1208_1017_01_hpx_mimic
+# rqt

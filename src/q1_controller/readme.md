@@ -6,7 +6,7 @@ sudo apt-get install ros-humble-gps-msgs
 pip install pygame -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 连接wifi的指令
-sudo nmcli device wifi connect iPhone password hpx09201538
+sudo nmcli device wifi connect iPhone password  hpx09201538
 
 
 # 国讯上进行编译的指令
@@ -41,13 +41,31 @@ sudo ./bin/ethercat_ti5_pp -o 6 -m 0 -f ../../../../hq_code/NIIC_ENI_1113/NIIC_E
 # 右臂校零
 sudo ./bin/ethercat_ti5_pp -o 6 -m 2 -f ../../../../hq_code/NIIC_ENI_1113/NIIC_ENI_Ti5_7.xml
 
+cd /home/niic/1127/setZero/encos/app_cpp/build
+sudo ./master_stack_test
+
+MotorZeroSet 2 1 109
+MotorZeroSet 0 1 110
+MotorZeroSet 0 2 111
+MotorZeroSet 0 3 112
+MotorZeroSet 0 4 113
+MotorZeroSet 0 5 114
+
+MotorZeroSet 2 2 209
+MotorZeroSet 1 1 210
+MotorZeroSet 1 2 211
+MotorZeroSet 1 3 212
+MotorZeroSet 1 4 213
+MotorZeroSet 1 5 214
 
 # 实机相关指令
 bash rl_motor.sh
 sudo ethercatctl stop 
 sudo ethercatctl start 
 
+
 cd /home/niic/1127/hq_code && sudo ./install/ecmaster/lib/ecmaster/multi-master --f1 NIIC_ENI_1113/NIIC_ENI_ECO_4.xml --f0 NIIC_ENI_1113/NIIC_ENI_Ti5_7.xml --f2 NIIC_ENI_1113/NIIC_ENI_Ti5_7.xml 
+cd /home/niic/1127/hq_code && sudo ./install/ecmaster/lib/ecmaster/multi-master --f1 NIIC_ENI_1113/NIIC_ENI_ECO_4.xml --f0 NIIC_ENI_1113/NIIC_ENI_Ti5_7.xml --f2 NIIC_ENI_1113/NIIC_ENI_Ti5_8.xml 
 
 sudo chmod -R 777 /dev/tty* && sudo chmod -R 777 /dev/input/js*
 sudo -E bash sudoros2.sh run q1_controller gamepad_publisher.py

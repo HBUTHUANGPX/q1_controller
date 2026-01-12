@@ -1,8 +1,13 @@
-policy_path: "src/q1_controller/policy/HPX/2026-01-08_22-19-52_Q1_slowly_walk_50000/policy.onnx"
+# policy_path: "src/q1_controller/policy/2025-11-26_19-32-25_Q1_251021_03_saw_120Hz_34500/policy.onnx"
+# policy_path: "src/q1_controller/policy/HPX/2025-12-08_11-04-45_Q1_slowly_walk_15000/policy.onnx"
+# policy_path: "src/q1_controller/policy/HPX/2025-12-05_20-12-40_Q1_slowly_walk_90000/policy.onnx"
+policy_path: "src/q1_controller/policy/HPX/2025-12-22_20-35-25_Q1_slowly_walk_90000/policy.onnx"
 
-# mocap_path: "src/q1_controller/artifacts/Xsens/251203/02_midium_forward_walk_120Hz.npz"
+# mocap_path: "src/q1_controller/artifacts/Q1_251021_03_saw_120Hz_v3/motion.npz"
 mocap_path: "src/q1_controller/artifacts/Q1_251021_01_slowly_walk_120Hz_v0/motion.npz"
+# mocap_path: "src/q1_controller/artifacts/Q1_stand_right_wave_120Hz_v0/motion.npz"
 deploy_mode: "sim2real" # "sim2real","sim2sim"
+# deploy_mode: "sim2sim" # "sim2real","sim2sim"
 num_actions: 29
 num_single_obs: 154
 frame_stack: 1
@@ -58,35 +63,21 @@ motors:
 # id表示的是在MotorInfo这个数据结构中的索引,从0到28
 # ec_id表示MotorInfo中的id
 # NOTE: ankle的两个关节的direction请务必是1
-- L_hip_roll_joint:       { id: 14, ec_id: 109, motor_type: "A10020_P1_12", direction:  1, kp: 300.0, kd: 2.5, torque_max:  85.1, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- L_hip_yaw_joint:        { id: 15, ec_id: 110, motor_type: "A6416_P2_25" , direction: -1, kp: 200.0, kd: 2.5, torque_max:  64.4, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- L_hip_pitch_joint:      { id: 16, ec_id: 111, motor_type: "A10020_P2_24", direction: -1, kp: 500.0, kd: 3.0, torque_max: 158.7, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- L_knee_joint:           { id: 17, ec_id: 112, motor_type: "A10020_P2_24", direction:  1, kp: 500.0, kd: 3.0, torque_max: 158.7, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- L_ankle_pitch_joint:    { id: 18, ec_id: 113, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  75.9, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- L_ankle_roll_joint:     { id: 19, ec_id: 114, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  75.9, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- L_hip_roll_joint:       { id: 14, ec_id: 109, motor_type: "A10020_P1_12", direction:  1, kp: 300.0, kd: 2.5, torque_max:  60.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- L_hip_yaw_joint:        { id: 15, ec_id: 110, motor_type: "A6416_P2_25" , direction: -1, kp: 200.0, kd: 3.5, torque_max:  40.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- L_hip_pitch_joint:      { id: 16, ec_id: 111, motor_type: "A10020_P2_24", direction: -1, kp: 500.0, kd: 3.0, torque_max: 160.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- L_knee_joint:           { id: 17, ec_id: 112, motor_type: "A10020_P2_24", direction:  1, kp: 500.0, kd: 3.0, torque_max: 160.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- L_ankle_pitch_joint:    { id: 18, ec_id: 113, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  36.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- L_ankle_roll_joint:     { id: 19, ec_id: 114, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  36.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
 
-- R_hip_roll_joint:       { id: 20, ec_id: 209, motor_type: "A10020_P1_12", direction:  1, kp: 300.0, kd: 2.5, torque_max:  85.1, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- R_hip_yaw_joint:        { id: 21, ec_id: 210, motor_type: "A6416_P2_25" , direction: -1, kp: 200.0, kd: 2.5, torque_max:  64.4, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- R_hip_pitch_joint:      { id: 22, ec_id: 211, motor_type: "A10020_P2_24", direction:  1, kp: 500.0, kd: 3.0, torque_max: 158.7, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- R_knee_joint:           { id: 23, ec_id: 212, motor_type: "A10020_P2_24", direction: -1, kp: 500.0, kd: 3.0, torque_max: 158.7, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- R_ankle_pitch_joint:    { id: 24, ec_id: 213, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  75.9, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-- R_ankle_roll_joint:     { id: 25, ec_id: 214, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  75.9, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- R_hip_roll_joint:       { id: 20, ec_id: 209, motor_type: "A10020_P1_12", direction:  1, kp: 300.0, kd: 2.5, torque_max:  60.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- R_hip_yaw_joint:        { id: 21, ec_id: 210, motor_type: "A6416_P2_25" , direction: -1, kp: 200.0, kd: 3.5, torque_max:  40.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- R_hip_pitch_joint:      { id: 22, ec_id: 211, motor_type: "A10020_P2_24", direction:  1, kp: 500.0, kd: 3.0, torque_max: 160.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- R_knee_joint:           { id: 23, ec_id: 212, motor_type: "A10020_P2_24", direction: -1, kp: 500.0, kd: 3.0, torque_max: 160.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- R_ankle_pitch_joint:    { id: 24, ec_id: 213, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  36.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- R_ankle_roll_joint:     { id: 25, ec_id: 214, motor_type: "A8116_P1_18" , direction:  1, kp: 200.0, kd: 1.5, torque_max:  36.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
 
-# - L_hip_roll_joint:       { id: 14, ec_id: 109, motor_type: "A10020_P1_12", direction:  1, kp: 0.0, kd: 2.5, torque_max:  50.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - L_hip_yaw_joint:        { id: 15, ec_id: 110, motor_type: "A6416_P2_25" , direction: -1, kp: 0.0, kd: 2.5, torque_max:  30.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - L_hip_pitch_joint:      { id: 16, ec_id: 111, motor_type: "A10020_P2_24", direction: -1, kp: 0.0, kd: 3.0, torque_max: 130.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - L_knee_joint:           { id: 17, ec_id: 112, motor_type: "A10020_P2_24", direction:  1, kp: 0.0, kd: 3.0, torque_max: 130.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - L_ankle_pitch_joint:    { id: 18, ec_id: 113, motor_type: "A8116_P1_18" , direction:  1, kp: 0.0, kd: 1.5, torque_max:  40.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - L_ankle_roll_joint:     { id: 19, ec_id: 114, motor_type: "A8116_P1_18" , direction:  1, kp: 0.0, kd: 1.5, torque_max:  40.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-
-# - R_hip_roll_joint:       { id: 20, ec_id: 209, motor_type: "A10020_P1_12", direction:  1, kp: 0.0, kd: 2.5, torque_max:  50.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - R_hip_yaw_joint:        { id: 21, ec_id: 210, motor_type: "A6416_P2_25" , direction: -1, kp: 0.0, kd: 2.5, torque_max:  30.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - R_hip_pitch_joint:      { id: 22, ec_id: 211, motor_type: "A10020_P2_24", direction:  1, kp: 0.0, kd: 3.0, torque_max: 130.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - R_knee_joint:           { id: 23, ec_id: 212, motor_type: "A10020_P2_24", direction: -1, kp: 0.0, kd: 3.0, torque_max: 130.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - R_ankle_pitch_joint:    { id: 24, ec_id: 213, motor_type: "A8116_P1_18" , direction:  1, kp: 0.0, kd: 1.5, torque_max:  40.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-# - R_ankle_roll_joint:     { id: 25, ec_id: 214, motor_type: "A8116_P1_18" , direction:  1, kp: 0.0, kd: 1.5, torque_max:  40.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
-
-- pelvis_joint:           { id: 28, ec_id:   3, motor_type: "none"        , direction:  1, kp: 280.0, kd: 4.0, torque_max:  42.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
+- pelvis_joint:           { id: 28, ec_id:   3, motor_type: "none"        , direction:  1, kp: 280.0, kd: 3.5, torque_max:  42.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
 
 - L_shoulder_pitch_joint: { id:  0, ec_id: 101, motor_type: "none"        , direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.0 }
 - L_shoulder_roll_joint:  { id:  1, ec_id: 102, motor_type: "none"        , direction:  1, kp:  70.0, kd: 1.5, torque_max:  42.0, trans_eff: 1.0, nominal_pos: 0.0, urdf_offset: 0.15 }

@@ -13,3 +13,5 @@ src/device_hal/*
 
 src/NIIC_ENI_M0_ECO_2.xml
 src/NIIC_ENI_1113/*
+src/q1_controller/policy/*
+src/q1_controller/artifacts/*

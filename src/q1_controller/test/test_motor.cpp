@@ -36,6 +36,7 @@ class LowlevelManager : public rclcpp::Node
         config_ = YAML::LoadFile("src/q1_controller/config/h1.yaml");
         dt_ = config_["dt"].as<float>();
         decimation_ = config_["decimation"].as<int>();
+        decimation_cnt_ = 0;
         num_actions_ = config_["num_actions"].as<int>();
         printf("TestMotor:YAML ok\r\n");
         scaled_action = Eigen::VectorXf::Zero(num_actions_);
@@ -75,32 +76,60 @@ class LowlevelManager : public rclcpp::Node
         // RCLCPP_INFO(this->get_logger(), "ECClientUpdate.");
         auto state = fsm_manager_->get_FSM_state();
         // RCLCPP_INFO(this->get_logger(), "get_FSM_state ok.");
-
+        decimation_cnt_ += 1;
+        std::string cmd;
         if (state == FSM_state::init_state)
         {
             /* code */
             rl_control_->reset_orientation_z_axis();
-            return motor_manager_->jointCommand(scaled_action * 0,false,false);
+            scaled_action *=0;
+            cmd = motor_manager_->jointCommand(scaled_action, false, false, state);
             // return motor_manager_->jointCommand(scaled_action * 0,true,false);
         }
         else if (state == FSM_state::default_state)
         {
-            rl_control_->set_time_step(1.f);
+            rl_control_->set_time_step(0.f);
             rl_control_->setMujocoStateByDataset(static_cast<int>(time_step_));
-            scaled_action = rl_control_->inference();
-            return motor_manager_->jointCommand(scaled_action,false,false);
+            if (decimation_cnt_ > 9)
+            {
+                scaled_action = rl_control_->inference();
+                // scaled_action *=0;
+                // scaled_action[4] = 0.2*std::sin(rl_control_->get_time_step()/50.f * 2 * M_PI/4.0);
+                // std::cout << scaled_action[4] << std::endl;
+            }
+            cmd = motor_manager_->jointCommand(scaled_action, false, false, state);
+        }
+        else if (state == FSM_state::default_state_wave)
+        {
+            rl_control_->set_time_step(0.f);
+            if (decimation_cnt_ > 9)
+            {
+                scaled_action = rl_control_->inference();
+            }
+            cmd = motor_manager_->jointCommand(scaled_action, false, false, state);
         }
         else if (state == FSM_state::rl_run_state)
         {
             RCLCPP_INFO(this->get_logger(), "inference.");
-            scaled_action = rl_control_->inference();
-            return motor_manager_->jointCommand(scaled_action,false,false);
+            if (decimation_cnt_ > 9)
+            {
+                scaled_action = rl_control_->inference();
+            }
+            cmd = motor_manager_->jointCommand(scaled_action, false, false, state);
         }
         else
         {
             // RCLCPP_INFO(this->get_logger(), "else.");
-            return motor_manager_->jointCommand(scaled_action * 0,true,true);
+            cmd = motor_manager_->jointCommand(scaled_action * 0, true, true, state);
         }
+        if (decimation_cnt_ > 9)
+        {
+            decimation_cnt_ = 0;
+        }
+        // std::cout << "decimation_cnt_: " << decimation_cnt_ << std::endl;
+        // RCLCPP_INFO(this->get_logger(), "");
+
+        return cmd;
     }
 
     void _init_deploy_mode();
@@ -115,7 +144,7 @@ class LowlevelManager : public rclcpp::Node
 
     std::shared_ptr<rl_control> rl_control_;
 
-    int decimation_;
+    int decimation_, decimation_cnt_;
     float dt_;
     int num_actions_;
     Eigen::VectorXf scaled_action;
@@ -145,7 +174,7 @@ void LowlevelManager::_init_deploy_mode()
         }
 
         robotcontrol_client =
-            std::make_unique<RTClient>(ServerPorts::ECMaster1_Server, ClientPorts::RobotControl_Client + 1, 20000);
+            std::make_unique<RTClient>(ServerPorts::ECMaster1_Server, ClientPorts::RobotControl_Client + 1, 2 * 1000);
         auto client_callback = [this]() { return this->ECClientUpdate(); };
         if (!robotcontrol_client->start(nullptr, client_callback))
         {
@@ -158,7 +187,7 @@ void LowlevelManager::_init_deploy_mode()
     else if (deploy_mode_ == sim2sim)
     {
         // 创建定时器
-        timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(dt_ * decimation_ * 1000.0)),
+        timer_ = this->create_wall_timer(std::chrono::milliseconds(static_cast<int>(dt_ * 1000.0)),
                                          std::bind(&LowlevelManager::mujocoUpdate, this));
     }
     else

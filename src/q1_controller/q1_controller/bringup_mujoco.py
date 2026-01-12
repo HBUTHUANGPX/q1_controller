@@ -248,10 +248,13 @@ class MujocoSimNode(Node):
         self.joint_state.position = self.data.qpos[self.URDF_joint_pos_index].tolist()
         self.joint_state.velocity = self.data.qvel[self.URDF_joint_vel_index].tolist()
         self.joint_state.effort = (
-            self.data.qvel[self.URDF_joint_vel_index] * 0
+            self.data.actuator_force
+            # self.data.qvel[self.URDF_joint_vel_index] * 0
         ).tolist()
         self.joint_state_publisher.publish(self.joint_state)
         self.mujoco_joint_state_publisher.publish(self.joint_state)
+        # print(self.data.actuator_force)
+        # print(self.data.qfrc_actuator)
 
     def _publish_world_to_pelvis_tf(self):
         """广播 world 到 pelvis_link 的 TF 变换。"""
@@ -287,7 +290,7 @@ class MujocoSimNode(Node):
         accumulated_time = 0.0  # 用于调整last_wall_time
         for _ in range(self.control_decimation):
             idx = 0
-            print("=======================")
+            # print("=======================")
             for motor_name, cmd in self.latest_commands.items():
                 idx = self.control_joint_name.index(motor_name)
                 current_pos = self.data.qpos[self.control_joint_pos_index[idx]]
@@ -299,23 +302,23 @@ class MujocoSimNode(Node):
                     + cmd["d_gain"] * (cmd["target_vel"] - current_vel)
                     + cmd["ff_effort"]
                 )
-                if motor_name == "L_Flange_A_joint":
-                    print("L_Flange_A_joint current_pos:{:7.4f}".format(current_pos))
-                if motor_name == "L_Flange_B_joint":
-                    print("L_Flange_B_joint current_pos:{:7.4f}".format(current_pos))
-                if motor_name == "R_Flange_A_joint":
-                    print("R_Flange_A_joint current_pos:{:7.4f}".format(current_pos))
-                    print(
-                        "p_gain :{:7.4f},target_pos :{:7.4f},d_gain :{:7.4f},target_vel :{:7.4f},torque :{:7.4f}".format(
-                            cmd["p_gain"],
-                            cmd["target_pos"],
-                            cmd["d_gain"],
-                            cmd["target_vel"],
-                            torque,
-                        )
-                    )
-                if motor_name == "R_Flange_B_joint":
-                    print("R_Flange_B_joint current_pos:{:7.4f}".format(current_pos))
+                # if motor_name == "L_Flange_A_joint":
+                #     print("L_Flange_A_joint current_pos:{:7.4f}".format(current_pos))
+                # if motor_name == "L_Flange_B_joint":
+                #     print("L_Flange_B_joint current_pos:{:7.4f}".format(current_pos))
+                # if motor_name == "R_Flange_A_joint":
+                #     print("R_Flange_A_joint current_pos:{:7.4f}".format(current_pos))
+                #     print(
+                #         "p_gain :{:7.4f},target_pos :{:7.4f},d_gain :{:7.4f},target_vel :{:7.4f},torque :{:7.4f}".format(
+                #             cmd["p_gain"],
+                #             cmd["target_pos"],
+                #             cmd["d_gain"],
+                #             cmd["target_vel"],
+                #             torque,
+                #         )
+                #     )
+                # if motor_name == "R_Flange_B_joint":
+                #     print("R_Flange_B_joint current_pos:{:7.4f}".format(current_pos))
                 # print("target_pos:\r\n",cmd["target_pos"])
                 self.data.ctrl[idx] = torque
                 # idx+=1

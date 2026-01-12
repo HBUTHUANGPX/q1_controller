@@ -1,25 +1,59 @@
 // 文件: motor_base.hpp
 #ifndef MOTOR_BASE_HPP
 #define MOTOR_BASE_HPP
+#pragma once
 
 #include <string>
 #include <iostream>
+#include <algorithm>
+#include <cstring>
+#include <ctime>
+#include <chrono>
+#include <iomanip>
+#include <cstdint>
+
 #if defined(USE_TENSORRT)
 #include "rt_comm_inipc/DoubleBuffer.hpp"
 #include "rt_comm_inipc/MotorCommandAPI.hpp"
 #include "rt_comm_inipc/MotorInfo.hpp"
 #include "rt_comm_inipc/rt_ipc.hpp"
 #else
-struct MotorInfo {
-    uint16_t id = 0;      // 电机ID
-    float kp = 0.0f;      // 比例系数
-    float kd = 0.0f;      // 微分系数
-    float pos = 0.0f;     // 位置
-    float vel = 0.0f;     // 速度  
-    float tor = 0.0f;     // 扭矩
-    uint8_t status = 0;   // 状态
-    uint8_t errcode = 0;  // 错误码
+// 电机信息结构体
+enum class motor_type : uint8_t
+{
+    NONE = 99,
+    A4310_P2_36 = 0,
+    A4315_P2_36 = 1,
+    A6408_P2_25 = 2,
+    A6416_P2_25 = 3,
+    A8112_P1_18 = 4,
+    A8116_P1_18 = 5,
+    A10020_P1_12 = 6,
+    A10020_P2_24 = 7,
+    Ti5_30_40 = 10,
+    Ti5_40_52 = 11,
+    Ti5_50_70 = 12,
+    Ti5_60_80 = 13,
 };
+typedef char MotorTimestamp[32];
+#pragma pack(1)
+// 电机信息结构体
+struct MotorInfo
+{
+    uint16_t id = 0;
+    float kp = 0.0f;
+    float kd = 0.0f;
+    float pos = 0.0f;
+    float vel = 0.0f;
+    float tor = 0.0f;
+    uint8_t status = 0;
+    uint8_t errcode = 0;
+    bool motor_cmd_flag = false;
+    bool enable_cmd = false;
+    uint64_t timestamp = 0; // 从epoch开始的微秒数
+    motor_type type = motor_type::A4310_P2_36;
+};
+#pragma pack()
 #endif
 /**
  * @brief Motor基类，定义单个电机的基本属性。
@@ -39,8 +73,8 @@ class MotorBase
      * @param max_torque 最大扭矩。
      * @param default_pos 默认位置。
      */
-    MotorBase(const std::string &name, float kp, float kd, float max_torque, float nominal_pos, float urdf_offset,
-              int id, int ec_id, int direction);
+    MotorBase(const std::string &name, float kp, float kd, float max_torque,float trans_eff, float nominal_pos, float urdf_offset,
+              int id, int ec_id, int direction,const std::string &_motor_type );
 
     /**
      * @brief 虚析构函数，支持子类扩展。
@@ -149,21 +183,27 @@ class MotorBase
     }
     void resetTargetPos(float value)
     {
-        motor_data.pos = value;
+        motor_data.pos = std::clamp(value, -3.f,3.f);
     }
     MotorInfo getMotorInfo()
     {
         return motor_data;
+    }
+    int getDirection() const
+    {
+        return direction_;
     }
   protected:
     std::string name_;                // 电机名称
     float kp_;                        // P增益
     float kd_;                        // D增益
     float max_torque_;                // 最大扭矩
+    float trans_eff_;
     float nominal_pos_, urdf_offset_,offset_pos_; // 默认位置
     float pos_, vel_, fft_;           // 当前 位置、速度、力矩
     float target_pos_;
     int id_, ec_id_, direction_;
+    motor_type motor_type_;
     MotorInfo motor_data;
 };
 

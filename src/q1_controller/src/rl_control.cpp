@@ -15,7 +15,7 @@ void rl_control::_init_deploy_module()
     printf("rl_control:inference_  TensorRTInference ok\r\n");
 #endif
     manager_ = std::make_shared<ObservationManager>(config_, data_store_); // 初始化ObservationManager
-    printf("rl_control:manager_ ok\r\n");
+    printf("rl_control:manager_ o k\r\n");
 }
 
 void rl_control::ImuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
@@ -31,20 +31,26 @@ void rl_control::ImuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
         //        transform_stamped.transform.rotation.y, transform_stamped.transform.rotation.z, transform_stamped.transform.rotation.w);
         // printf("pe x:%7.4f y:%7.4f z:%7.4f w:%7.4f\n", msg->orientation.x,
         //        msg->orientation.y, msg->orientation.z, msg->orientation.w);   
-        
+    // std::cout<<"=============="<<std::endl;
     Eigen::Quaternionf robot_quat(msg->orientation.w, msg->orientation.x,
                                     msg->orientation.y, msg->orientation.z);
-        // Eigen::Matrix3f rotation_matrix_2 = robot_quat_2.toRotationMatrix();
-        // Eigen::Vector3f rpy_2 = rotation_matrix_2.eulerAngles(0, 1, 2);  // Roll (X), Pitch (Y), Yaw (Z)，单位：弧度
-        // printf("Roll: %7.4f, Pitch: %7.4f, Yaw: %7.4f (radians)\n", rpy_2.x(), rpy_2.y(), rpy_2.z());
-
-        // Eigen::Quaternionf robot_quat(transform_stamped.transform.rotation.w, transform_stamped.transform.rotation.x,
-        //                               transform_stamped.transform.rotation.y, transform_stamped.transform.rotation.z);
-        // Eigen::Matrix3f rotation_matrix = robot_quat.toRotationMatrix();
-        // Eigen::Vector3f rpy = rotation_matrix.eulerAngles(0, 1, 2);  // Roll (X), Pitch (Y), Yaw (Z)，单位：弧度
-        // printf("Roll: %7.4f, Pitch: %7.4f, Yaw: %7.4f (radians)\n", rpy.x(), rpy.y(), rpy.z());
 
 
+    // // roll (x-axis rotation)
+    // float sinr_cosp = 2 * (robot_quat.w() * robot_quat.x() + robot_quat.y() * robot_quat.z());
+    // float cosr_cosp = 1 - 2 * (robot_quat.x() * robot_quat.x() + robot_quat.y() * robot_quat.y());
+    // auto roll = std::atan2(sinr_cosp, cosr_cosp);
+
+    // // pitch (y-axis rotation)
+    // float sinp = std::sqrt(1 + 2 * (robot_quat.w() * robot_quat.y() - robot_quat.x() * robot_quat.z()));
+    // float cosp = std::sqrt(1 - 2 * (robot_quat.w() * robot_quat.y() - robot_quat.x() * robot_quat.z()));
+    // auto pitch = 2 * std::atan2(sinp, cosp) - M_PI / 2;
+
+    // yaw (z-axis rotation)
+    float siny_cosp = 2 * (robot_quat.w() * robot_quat.z() + robot_quat.x() * robot_quat.y());
+    float cosy_cosp = 1 - 2 * (robot_quat.y() * robot_quat.y() + robot_quat.z() * robot_quat.z());
+    auto yaw = std::atan2(siny_cosp, cosy_cosp);
+    // printf("Roll: %7.4f, Pitch: %7.4f, Yaw: %7.4f (radians)\n", roll, pitch, yaw);
     // RCLCPP_WARN(node_->get_logger(), "robot_quat");
     if (fresh_reference_quat_flag)
     {
@@ -53,19 +59,33 @@ void rl_control::ImuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
         reference_quat_ = robot_quat;
     }
     robot_quat = robot_quat.normalized();
-    // 计算参考四元数的Z轴旋转角度 theta = 2 * atan2(z, w)
-    float theta = 2.0f * std::atan2(reference_quat_.z(), reference_quat_.w());
-
     // 构造反向旋转四元数 q_comp = [cos(-theta/2), 0, 0, sin(-theta/2)]
-    float cos_half = std::cos(-theta / 2.0f);
-    float sin_half = std::sin(-theta / 2.0f);
+    float cos_half = std::cos(-yaw / 2.0f);
+    float sin_half = std::sin(-yaw / 2.0f);
     Eigen::Quaternionf q_comp(cos_half, 0.0f, 0.0f, sin_half);
+    // Eigen::Quaternionf q_comp(cos_half, 0.0f, 0.0f, -sin_half);
 
     // 应用补偿：robot_quat = q_comp * robot_quat
     robot_quat = q_comp * robot_quat;
 
     // 确保结果归一化
     robot_quat = robot_quat.normalized();
+
+    // // roll (x-axis rotation)
+    // sinr_cosp = 2 * (robot_quat.w() * robot_quat.x() + robot_quat.y() * robot_quat.z());
+    // cosr_cosp = 1 - 2 * (robot_quat.x() * robot_quat.x() + robot_quat.y() * robot_quat.y());
+    // roll = std::atan2(sinr_cosp, cosr_cosp);
+
+    // // pitch (y-axis rotation)
+    // sinp = std::sqrt(1 + 2 * (robot_quat.w() * robot_quat.y() - robot_quat.x() * robot_quat.z()));
+    // cosp = std::sqrt(1 - 2 * (robot_quat.w() * robot_quat.y() - robot_quat.x() * robot_quat.z()));
+    // pitch = 2 * std::atan2(sinp, cosp) - M_PI / 2;
+
+    // // yaw (z-axis rotation)
+    // siny_cosp = 2 * (robot_quat.w() * robot_quat.z() + robot_quat.x() * robot_quat.y());
+    // cosy_cosp = 1 - 2 * (robot_quat.y() * robot_quat.y() + robot_quat.z() * robot_quat.z());
+    // yaw = std::atan2(siny_cosp, cosy_cosp);
+    // printf("Roll: %7.4f, Pitch: %7.4f, Yaw: %7.4f (radians)\n", roll, pitch, yaw);
 
     data_store_->UpdateRobotQuat(robot_quat);
     // RCLCPP_WARN(node_->get_logger(), "data_store_");
@@ -149,7 +169,8 @@ Eigen::VectorXf rl_control::inference()
     // RCLCPP_INFO(this->get_logger(), "motor_manager_");
     time_step_ += 1.0;
     // if (time_step_ >= 100.0f)
-    if (time_step_ >= motion_loader_->getTimeStepTotal())
+    if (time_step_ >= 50*8)
+    // if (time_step_ >= motion_loader_->getTimeStepTotal())
     {
         time_step_ *= 0.0;
     }

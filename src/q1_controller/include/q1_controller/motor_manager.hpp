@@ -4,6 +4,7 @@
 
 #include "data_store.hpp"
 #include "motor_base.hpp"
+#include "FSM_manager.hpp"
 #include "actual_virtual_map.hpp"
 #include "q1_controller/msg/multi_motor_command.hpp" // 自定义消息
 #include <Eigen/Dense>
@@ -13,7 +14,6 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <vector>
 #include <yaml-cpp/yaml.h>
-
 #if defined(USE_TENSORRT)
 #include "rt_comm_inipc/DoubleBuffer.hpp"
 #include "rt_comm_inipc/MotorCommandAPI.hpp"
@@ -53,7 +53,7 @@ class MotorManager
     std::shared_ptr<MotorBase> getMotorByIndex(size_t index) const;
     std::shared_ptr<MotorBase> getMotorByID(int ID) const;
 
-    std::string jointCommand(const Eigen::VectorXf &actions,bool zero_kp,bool zero_kd);
+    std::string jointCommand(const Eigen::VectorXf &actions,bool zero_kp,bool zero_kd,FSM_state state);
     void jointStateUpdate(const std::string &message, int from_port);
 
     /**
@@ -85,10 +85,16 @@ class MotorManager
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;            // 关节状态订阅器
     rclcpp::Publisher<q1_controller::msg::MultiMotorCommand>::SharedPtr target_pos_pub_;                // 目标位置发布器
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_recv_pub_,state_ctrl_pub_;          // 目标位置发布器
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr set_robot_state_publisher_;
     std::shared_ptr<DataStore> data_store_;
     actual_virtual_map avm_;
     std::map<std::string, size_t> joint_indices_in_motors;
     std::vector<std::string> joint_index_in_need;
+
+    bool wave_initialized;
+    std::chrono::high_resolution_clock::time_point wave_start_time;
+    int wave_phase;
+    
 #if defined(USE_TENSORRT)
     std::vector<MotorInfo> control_data;
 #endif

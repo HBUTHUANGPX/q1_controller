@@ -23,6 +23,9 @@ FSM_manager::FSM_manager(rclcpp::Node *node, std::shared_ptr<DataStore> data_sto
         std::bind(&FSM_manager::stateTransitionServiceCallback, this, std::placeholders::_1, std::placeholders::_2));
     printf("FSM_manager: state_transition_srv_ okr\n");
     state_publisher_ = node_->create_publisher<std_msgs::msg::Int32>("/robot_state", 10);    
+    state_subscriber_ = node_->create_subscription<std_msgs::msg::Int32>(
+            "/set_robot_state", 10, std::bind(&FSM_manager::setStateCallback, this, std::placeholders::_1));
+        
     last_transition_success_ = false;
     printf("FSM_manager: okr\n");
 }
@@ -70,6 +73,36 @@ void FSM_manager::stateTransitionServiceCallback(const std::shared_ptr<q1_contro
     last_transition_success_ = success; // 存储结果，用于 callback
     RCLCPP_INFO(node_->get_logger(), "服务响应: %s", message.c_str());
 }
+void FSM_manager::setStateCallback(const std_msgs::msg::Int32::SharedPtr msg)
+{
+    FSM_state state = static_cast<FSM_state>(msg->data);
+    if (state == FSM_state::init_state)
+    {
+        FSM_state_ = FSM_state::init_state;
+        RCLCPP_INFO(node_->get_logger(), "change state to init_state.");
+    }
+    else if (state == FSM_state::default_state)
+    {
+        FSM_state_ = FSM_state::default_state;
+        RCLCPP_INFO(node_->get_logger(), "change state to default_state.");
+    }
+    else if (state == FSM_state::default_state_wave)
+    {
+        FSM_state_ = FSM_state::default_state_wave;
+        RCLCPP_INFO(node_->get_logger(), "change state to default_state_wave.");
+    }
+    else if (state == FSM_state::rl_run_state)
+    {
+        FSM_state_ = FSM_state::rl_run_state;
+        RCLCPP_INFO(node_->get_logger(), "change state to rl_run_state.");
+    }
+    else if (state == FSM_state::err_state)
+    {
+        FSM_state_ = FSM_state::err_state;
+        RCLCPP_INFO(node_->get_logger(), "change state to err_state.");
+    }
+    
+}
 void FSM_manager::joyCallback(const q1_controller::msg::XboxJoy::SharedPtr msg)
 {
     // RCLCPP_INFO(node_->get_logger(), "joyCallback.");
@@ -101,6 +134,7 @@ void FSM_manager::joyCallback(const q1_controller::msg::XboxJoy::SharedPtr msg)
     // std::cout << "joyCallback 3" << std::endl;
     // std::cout << cmd_3.transpose() << std::endl;
     lt_pressed_ = (msg->axes[5] > 0.4f);
+    rt_pressed_ = (msg->axes[4] > 0.4f);
     b_pressed_ = (msg->buttons[1] > 0);      // 假设buttons[1]为B按钮，按下时>0
     a_pressed_ = (msg->buttons[0] > 0);      // 假设buttons[0]为A按钮，按下时>0
     start_pressed_ = (msg->buttons[11] > 0); // 假设buttons[11]为start按钮，按下时>0
@@ -147,6 +181,14 @@ void FSM_manager::stateTransitionCallback()
     {
         FSM_state_ = FSM_state::init_state;
         RCLCPP_INFO(node_->get_logger(), "change state to init_state.");
+    }
+    else if(rt_pressed_ && start_pressed_)
+    {
+        if (FSM_state_ == FSM_state::default_state) // 替换为您的实际条件
+        {
+            FSM_state_ = FSM_state::default_state_wave;
+            RCLCPP_INFO(node_->get_logger(), "change state from default_state to default_state_wave.");
+        }
     }
     std_msgs::msg::Int32 state_msg;
     state_msg.data = static_cast<int>(FSM_state_);

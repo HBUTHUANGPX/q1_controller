@@ -43,14 +43,18 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
         int ec_id = params["ec_id"].as<int>();
         int direction = 1;
         float urdf_offset = 0.f;
+        float trans_eff = 1.0f;
+        std::string motor_type = "none";
         if (deploy_mode_ == sim2real)
         {
             direction = params["direction"].as<int>();
             urdf_offset = params["urdf_offset"].as<float>();
+            trans_eff = params["trans_eff"].as<float>();
+            motor_type = params["motor_type"].as<std::string>();
         }
 
-        auto motor =
-            std::make_shared<MotorBase>(name, kp, kd, max_torque, nominal_pos, urdf_offset, id, ec_id, direction);
+        auto motor = std::make_shared<MotorBase>(name, kp, kd, max_torque, trans_eff, nominal_pos, urdf_offset, id,
+                                                 ec_id, direction,motor_type);
         motors_.push_back(motor);
         name_to_index_[name] = index++;
         std::cout << name << std::endl;
@@ -141,6 +145,9 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
     }
     // 创建发布器
     target_pos_pub_ = node_->create_publisher<q1_controller::msg::MultiMotorCommand>("/target_pos", 10);
+    set_robot_state_publisher_ = node_->create_publisher<std_msgs::msg::Int32>("/set_robot_state", 10);
+    wave_initialized = false;
+    wave_phase = 0; // 0:未开始, 1:阶段1, 2:阶段2, 3:阶段3, 4:完成
 }
 
 /**
@@ -188,6 +195,7 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
     // 转换为二进制数据
     std::vector<uint8_t> binary_data(message.begin(), message.end());
 
+#if defined(USE_TENSORRT)
     // 反序列化
     // printf("MotorManager:反序列化\r\n");
     std::vector<MotorInfo> received_motors;
@@ -245,11 +253,15 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
             msg->effort.push_back(motors_[i]->getCurrentFFT());
             msg->name.push_back(motors_[i]->getName());
         }
+        // for (size_t i = 0; i < 12; i++)
+        // {
+        //     std::cout<<msg->name[i]<<": "<<msg->position[i]<<std::endl;
+        // }
         size_t i = 0;
         for (const auto &name : joint_index_in_need)
         {
             size_t motor_index = joint_indices_in_motors[name];
-            current_pos_[i] = motors_[motor_index]->getCurrentPos() - motors_[motor_index]->getNominalPos() ;
+            current_pos_[i] = motors_[motor_index]->getCurrentPos() - motors_[motor_index]->getNominalPos();
             current_vel_[i] = motors_[motor_index]->getCurrentVel();
             ++i;
         }
@@ -265,6 +277,7 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
     {
         std::cerr << "Failed to deserialize motor data" << std::endl;
     }
+#endif
 }
 
 /**
@@ -385,10 +398,26 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
     target_pos_pub_->publish(std::move(msg));
 }
 
-std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero_kp, bool zero_kd)
+std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero_kp, bool zero_kd, FSM_state state)
 {
     publishTargetPos(actions, zero_kp, zero_kd);
-#if defined(USE_TENSORRT)
+    // #if defined(USE_TENSORRT)
+
+    // ==================== 挥手动作状态机（仅右臂7个关节） ====================
+    // 右臂关节名称（必须与YAML配置一致）
+    const std::vector<std::string> right_arm_joints = {
+        "R_shoulder_pitch_joint", "R_shoulder_roll_joint", "R_shoulder_yaw_joint", "R_elbow_joint",
+        "R_forearm_yaw_joint",    "R_wrist_roll_joint",    "R_wrist_pitch_joint"};
+
+    // 目标位置（挥手初始姿态，单位：弧度）
+    const std::vector<float> target_positions = {-1.48f, 0.0f, 0.0f, -0.78f, 1.42f, -0.892f, 0.0f};
+
+    // 运动参数
+    constexpr float phase1_duration = 3.0f;  // 到达目标姿态
+    constexpr float phase2_duration = 10.0f; // 挥手摆动时间
+    constexpr float phase3_duration = 3.0f;  // 回到零位
+    constexpr float amplitude = 0.32f;       // 肩偏航关节摆动幅度（rad）
+    constexpr float frequency = 0.25f;       // 挥手频率 0.25Hz → 单次挥手约4秒
     for (size_t i = 0; i < motors_in_id_.size(); ++i)
     {
         control_data.at(i) = motors_in_id_[i]->getMotorInfo();
@@ -401,13 +430,135 @@ std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero
             control_data[i].kd = 0;
         }
     }
+    // 初始化启动时间
+    if (state == FSM_state::default_state_wave)
+    {
+
+        if (!wave_initialized)
+        {
+            wave_start_time = std::chrono::high_resolution_clock::now();
+            wave_initialized = true;
+            wave_phase = 1;
+            RCLCPP_INFO(node_->get_logger(), "右臂挥手动作开始");
+        }
+
+        // 计算总运行时间（秒）
+        auto now = std::chrono::high_resolution_clock::now();
+        float elapsed_total = std::chrono::duration<float>(now - wave_start_time).count();
+
+        float t = 0.0f;
+        float s = 0.0f; // 五次多项式插值系数
+
+        // 阶段1：从零位 → 目标姿态（5次多项式）
+        if (wave_phase == 1)
+        {
+            t = elapsed_total / phase1_duration;
+            if (t >= 1.0f)
+            {
+                t = 1.0f;
+                wave_phase = 2;
+                wave_start_time = now; // 重置计时器用于阶段2
+                RCLCPP_INFO(node_->get_logger(), "[挥手 %.2fs] 阶段1完成，进入挥手阶段", elapsed_total);
+            }
+            s = 6.0f * t * t * t * t * t - 15.0f * t * t * t * t + 10.0f * t * t * t;
+
+            for (size_t i = 0; i < right_arm_joints.size(); ++i)
+            {
+                auto motor = getMotorByName_in_id(right_arm_joints[i]);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[right_arm_joints[i]];
+                    control_data[idx].pos =
+                        (0.0f + (target_positions[i] - 0.0f) * s) * motors_in_id_[idx]->getDirection();
+                }
+            }
+        }
+
+        // 阶段2：肩偏航关节正弦摆动（其他关节保持）
+        else if (wave_phase == 2)
+        {
+            float phase2_elapsed = std::chrono::duration<float>(now - wave_start_time).count();
+            t = phase2_elapsed / phase2_duration;
+
+            float oscillation = amplitude * std::sin(2.0f * M_PI * frequency * phase2_elapsed);
+
+            for (size_t i = 0; i < right_arm_joints.size(); ++i)
+            {
+                auto motor = getMotorByName_in_id(right_arm_joints[i]);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[right_arm_joints[i]];
+                    if (i == 2)
+                    { // R_shoulder_yaw_joint 是第3个（索引2）
+                        control_data[idx].pos =
+                            (target_positions[2] + oscillation) * motors_in_id_[idx]->getDirection();
+                    }
+                    else
+                    {
+                        control_data[idx].pos = (target_positions[i]) * motors_in_id_[idx]->getDirection();
+                    }
+                }
+            }
+
+            if (t >= 1.0f)
+            {
+                wave_phase = 3;
+                wave_start_time = now;
+                RCLCPP_INFO(node_->get_logger(), "[挥手 %.2fs] 阶段2完成，准备回零", elapsed_total);
+            }
+        }
+
+        // 阶段3：从目标姿态 → 零位（5次多项式）
+        else if (wave_phase == 3)
+        {
+            t = std::chrono::duration<float>(now - wave_start_time).count() / phase3_duration;
+            if (t >= 1.0f)
+            {
+                t = 1.0f;
+                wave_phase = 4;
+                RCLCPP_INFO(node_->get_logger(), "[挥手 %.2fs] 阶段3完成，挥手动作结束", elapsed_total);
+            }
+            s = 6.0f * t * t * t * t * t - 15.0f * t * t * t * t + 10.0f * t * t * t;
+
+            for (size_t i = 0; i < right_arm_joints.size(); ++i)
+            {
+                auto motor = getMotorByName_in_id(right_arm_joints[i]);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[right_arm_joints[i]];
+                    control_data[idx].pos =
+                        (target_positions[i] + (0.0f - target_positions[i]) * s) * motors_in_id_[idx]->getDirection();
+                }
+            }
+        }
+
+        // 阶段4：保持零位
+        else if (wave_phase == 4)
+        {
+            for (const auto &joint_name : right_arm_joints)
+            {
+                auto motor = getMotorByName_in_id(joint_name);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[joint_name];
+                    control_data[idx].pos = 0.0f;
+                }
+            }
+            std_msgs::msg::Int32 state_msg;
+            state_msg.data = static_cast<int>(FSM_state::default_state);
+            set_robot_state_publisher_->publish(std::move(state_msg));
+            wave_initialized = false;
+            wave_phase = 0; // 0:未开始, 1:阶段1, 2:阶段2, 3:阶段3, 4:完成
+        }
+    }
+
     auto serialized_data = MotorSerializer::serialize_array(control_data.data(), control_data.size());
     // RCLCPP_WARN(node_->get_logger(), "jointCommand.");
     return std::string(serialized_data.begin(), serialized_data.end());
-#else
+    // #else
     // RCLCPP_WARN(node_->get_logger(), "A.");
-    return std::string("A");
-#endif
+    // return std::string("A");
+    // #endif
 }
 
 /**
