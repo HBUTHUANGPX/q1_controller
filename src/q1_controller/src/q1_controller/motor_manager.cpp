@@ -185,6 +185,7 @@ std::shared_ptr<MotorBase> MotorManager::getMotorByIndex(size_t index) const
 
 void MotorManager::jointStateUpdate(const std::string &message, int from_port)
 {
+#if defined(USE_TENSORRT)
     // 转换为二进制数据
     std::vector<uint8_t> binary_data(message.begin(), message.end());
 
@@ -265,6 +266,7 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
     {
         std::cerr << "Failed to deserialize motor data" << std::endl;
     }
+#endif
 }
 
 /**

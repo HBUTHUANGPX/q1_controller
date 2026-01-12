@@ -242,6 +242,8 @@ install(PROGRAMS
   q1_controller/bringup_joystick.py
   q1_controller/bringup_webserver.py
   q1_controller/gamepad_publisher.py
+  q1_controller/tts_say.py
+  q1_controller/voice_trigger.py
   DESTINATION lib/${PROJECT_NAME}
 )
 # 安装目录
