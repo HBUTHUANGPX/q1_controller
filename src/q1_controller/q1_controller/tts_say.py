@@ -25,7 +25,7 @@ RECONNECT_DELAY_S = 1.0     # 重连间隔
 # 播放稳定性关键参数（可调）
 # ============================
 STOP_SETTLE_S = 0.15        # stop 后等待 AIUI 状态切换（稳定关键，建议 0.12~0.20）
-# [FIX] 冷启动阶段更稳一点：更长 settle + start 补发一次
+# 冷启动阶段更稳一点：更长 settle + start 补发一次
 COLD_START_WINDOW_S = 12.0  # 冷启动阶段持续时长（秒）
 COLD_STOP_SETTLE_S = 0.28   # 冷启动阶段 stop 后等待（更长更稳）
 COLD_START_BOOST_DELAY_S = 0.10  # 冷启动阶段补发 start 前等待
@@ -68,12 +68,12 @@ class AIUIClient:
                         self.client_socket.close()
                     except Exception:
                         pass
-
+ 
                 self.client_socket = socket(AF_INET, SOCK_STREAM)
                 self.client_socket.settimeout(SOCKET_TIMEOUT_S)
                 self.client_socket.connect(self.server_ip_port)
 
-                # 初始化配置（保留你原来的逻辑）
+                # 初始化配置
                 self.send_control_message({"type": "voice", "content": {"enable_voice": True}})
                 self.send_control_message({"type": "voice", "content": {"vol_value": 15}})
                 '''
@@ -148,14 +148,14 @@ class AIUITTSNode(Node):
         self._latest_text = ""
         self._latest_id = 0
 
-        # [FIX] 连接/热身互斥锁：避免 init 线程和 worker 线程并发 connect/warm-up
+        # 连接/热身互斥锁：避免 init 线程和 worker 线程并发 connect/warm-up
         self._conn_lock = Lock()
 
         # [WARMUP] 就绪门禁 + boost 窗口
         self._ready_at = 0.0
         self._boost_until = 0.0
 
-        # [FIX] 冷启动窗口（启动后前 N 秒更稳一点）
+        # 冷启动窗口（启动后前 N 秒更稳一点）
         self._startup_until = time.time() + COLD_START_WINDOW_S
 
         # 工作线程：负责发送（统一出口，避免乱序）
@@ -200,7 +200,7 @@ class AIUITTSNode(Node):
         """
         确保 TCP 已连接；首次连接 / 重连后做 warm-up 并设置就绪门禁
         """
-        with self._conn_lock:  # [FIX] 互斥：禁止并发 connect/warm-up
+        with self._conn_lock:  # 互斥：禁止并发 connect/warm-up
             if self.aiui_client is not None:
                 return
 
@@ -272,7 +272,7 @@ class AIUITTSNode(Node):
                 # stop -> wait -> start
                 self.aiui_client.tts_stop()
 
-                # [FIX] 冷启动窗口：给更长 settle，减少吞 start / 无声
+                # 冷启动窗口：给更长 settle，减少吞 start / 无声
                 settle = COLD_STOP_SETTLE_S if time.time() < self._startup_until else STOP_SETTLE_S
                 time.sleep(settle)
 
