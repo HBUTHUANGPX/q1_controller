@@ -144,7 +144,8 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
                                  ",请检查并核对.yaml文件中的 'deploy_mode' 字段");
     }
     // 创建发布器
-    target_pos_pub_ = node_->create_publisher<q1_controller::msg::MultiMotorCommand>("/target_pos", 10);
+    multi_motor_command_pub_ = node_->create_publisher<q1_controller::msg::MultiMotorCommand>("/multi_motor_command", 10);
+    multi_motor_state_pub_ = node_->create_publisher<q1_controller::msg::MultiMotorState>("/multi_motor_state", 10);
     set_robot_state_publisher_ = node_->create_publisher<std_msgs::msg::Int32>("/set_robot_state", 10);
     wave_initialized = false;
     wave_phase = 0; // 0:未开始, 1:阶段1, 2:阶段2, 3:阶段3, 4:完成
@@ -201,12 +202,23 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
     std::vector<MotorInfo> received_motors;
     if (MotorSerializer::deserialize_array(binary_data, received_motors))
     {
+        auto multi_motor_state_msg = std::make_unique<q1_controller::msg::MultiMotorState>();
+        multi_motor_state_msg->states.reserve(motors_.size());
         for (size_t i = 0; i < received_motors.size(); i++)
         {
+            q1_controller::msg::SingleMotorState state;
             motors_in_id_[i]->writeCurrentPos(received_motors[i].pos);
             motors_in_id_[i]->writeCurrentVel(received_motors[i].vel);
             motors_in_id_[i]->writeCurrentFFT(received_motors[i].tor);
+            motors_in_id_[i]->writeCurrentTimeStamp(received_motors[i].timestamp);
+            state.motor_name = motors_in_id_[i]->getName();
+            state.current_pos = received_motors[i].pos;
+            state.current_vel = received_motors[i].vel;
+            state.current_tor = received_motors[i].tor;
+            state.timestamp = received_motors[i].timestamp;
+            multi_motor_state_msg->states.push_back(state);
         }
+        multi_motor_state_pub_->publish(std::move(multi_motor_state_msg));
         // sensor_msgs::msg::JointState msg;
         auto msg = std::make_unique<sensor_msgs::msg::JointState>();
         // received_motors存放的是真实关节电机的关节角度和角速度
@@ -395,7 +407,7 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
         control_data.at(i) = motors_in_id_[i]->getMotorInfo(); // TODO： 检查冲突
 #endif
     }
-    target_pos_pub_->publish(std::move(msg));
+    multi_motor_command_pub_->publish(std::move(msg));
 }
 
 std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero_kp, bool zero_kd, FSM_state state)
@@ -552,13 +564,14 @@ std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero
         }
     }
 
+#if defined(USE_TENSORRT)
     auto serialized_data = MotorSerializer::serialize_array(control_data.data(), control_data.size());
     // RCLCPP_WARN(node_->get_logger(), "jointCommand.");
     return std::string(serialized_data.begin(), serialized_data.end());
-    // #else
+#else
     // RCLCPP_WARN(node_->get_logger(), "A.");
-    // return std::string("A");
-    // #endif
+    return std::string("A");
+#endif
 }
 
 /**

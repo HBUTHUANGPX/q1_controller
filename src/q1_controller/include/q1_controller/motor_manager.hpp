@@ -7,6 +7,7 @@
 #include "FSM_manager.hpp"
 #include "actual_virtual_map.hpp"
 #include "q1_controller/msg/multi_motor_command.hpp" // 自定义消息
+#include "q1_controller/msg/multi_motor_state.hpp" // 自定义消息
 #include <Eigen/Dense>
 #include <map>
 #include <memory>
@@ -83,8 +84,11 @@ class MotorManager
 
     rclcpp::Node::SharedPtr node_;                                                       // ROS节点指针
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;            // 关节状态订阅器
-    rclcpp::Publisher<q1_controller::msg::MultiMotorCommand>::SharedPtr target_pos_pub_;                // 目标位置发布器
+    rclcpp::Publisher<q1_controller::msg::MultiMotorCommand>::SharedPtr multi_motor_command_pub_;                // 目标位置发布器
+    rclcpp::Publisher<q1_controller::msg::MultiMotorState>::SharedPtr multi_motor_state_pub_;                // 目标位置发布器
+
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_recv_pub_,state_ctrl_pub_;          // 目标位置发布器
+
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr set_robot_state_publisher_;
     std::shared_ptr<DataStore> data_store_;
     actual_virtual_map avm_;

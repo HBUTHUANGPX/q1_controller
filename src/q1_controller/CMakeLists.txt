@@ -147,7 +147,9 @@ endif()
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SingleMotorState.msg"
   "msg/SingleMotorCommand.msg"
+  "msg/MultiMotorState.msg"
   "msg/MultiMotorCommand.msg"
   "msg/Dataset.msg"
   "msg/XboxJoy.msg"

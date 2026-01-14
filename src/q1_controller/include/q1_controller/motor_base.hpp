@@ -164,6 +164,10 @@ class MotorBase
     {
         fft_ = value * direction_;
     }
+    void writeCurrentTimeStamp(uint64_t micros)
+    {
+        micros_time = micros;
+    }
     /*
         getTargetPos用来获得PD传入的目标角度， setTargetPos 用来更新， resetTargetPos 也是用来更新
         setTargetPos 在sim2real中，将对所有关节电机乘一个转向，
@@ -193,6 +197,31 @@ class MotorBase
     {
         return direction_;
     }
+    uint64_t getCurrentTimestampStrMicro()
+    {
+        auto now = std::chrono::system_clock::now();
+        auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+            now.time_since_epoch());
+        return us.count();
+    }
+    std::string microsToStringStream(uint64_t micros) 
+    {
+        uint64_t seconds = micros / 1000000;
+        uint64_t micros_part = micros % 1000000;
+        
+        std::time_t time_sec = static_cast<std::time_t>(seconds);
+        std::tm* local_time = std::localtime(&time_sec);
+        
+        if (!local_time) {
+            return "时间转换失败";
+        }
+        
+        std::ostringstream oss;
+        oss << std::put_time(local_time, "%Y-%m-%d %H:%M:%S")
+            << "." << std::setfill('0') << std::setw(6) << micros_part;
+        
+        return oss.str();
+    }
   protected:
     std::string name_;                // 电机名称
     float kp_;                        // P增益
@@ -202,6 +231,7 @@ class MotorBase
     float nominal_pos_, urdf_offset_,offset_pos_; // 默认位置
     float pos_, vel_, fft_;           // 当前 位置、速度、力矩
     float target_pos_;
+    uint64_t micros_time;
     int id_, ec_id_, direction_;
     motor_type motor_type_;
     MotorInfo motor_data;

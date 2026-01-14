@@ -1,0 +1,5 @@
+string motor_name
+float64 current_pos
+float64 current_vel
+float64 current_tor
+uint64 timestamp
