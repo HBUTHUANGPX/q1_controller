@@ -14,7 +14,7 @@ from std_msgs.msg import String
 from utils_log import log
 
 from aiui_gateway_config import (
-    TARGET_IP, AIUI_PORT,
+    AIUI_PORT,
     TOPIC_TTS,
     TOPIC_AIUI_EVENT, TOPIC_AIUI_IAT, TOPIC_AIUI_NLP, TOPIC_AIUI_INTENT
 )
@@ -189,7 +189,7 @@ class AIUIGateway(Node):
         super().__init__('aiui_gateway')
 
         # TTS 引擎（内部 connect/warmup/worker 都在这里）
-        self.tts_engine = StableTTSEngine(TARGET_IP, AIUI_PORT)
+        self.tts_engine = StableTTSEngine(AIUI_PORT)
 
         # ROS2
         self.sub_tts = self.create_subscription(String, TOPIC_TTS, self._on_tts, 10)
@@ -206,7 +206,7 @@ class AIUIGateway(Node):
         self._rx_thread = Thread(target=self._rx_loop, daemon=True)
         self._rx_thread.start()
 
-        self.get_logger().info(f"AIUI Gateway started. target={TARGET_IP}:{AIUI_PORT}")
+        self.get_logger().info(f"AIUI Gateway started. port={AIUI_PORT}")
 
     def _on_tts(self, msg: String):
         text = (msg.data or "").strip()
