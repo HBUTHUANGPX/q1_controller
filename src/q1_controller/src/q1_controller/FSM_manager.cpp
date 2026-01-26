@@ -133,12 +133,14 @@ void FSM_manager::joyCallback(const q1_controller::msg::XboxJoy::SharedPtr msg)
     data_store_->UpdateCmdVel(cmd_3);
     // std::cout << "joyCallback 3" << std::endl;
     // std::cout << cmd_3.transpose() << std::endl;
-    lt_pressed_ = (msg->axes[5] > 0.4f);
-    rt_pressed_ = (msg->axes[4] > 0.4f);
-    b_pressed_ = (msg->buttons[1] > 0);      // 假设buttons[1]为B按钮，按下时>0
-    a_pressed_ = (msg->buttons[0] > 0);      // 假设buttons[0]为A按钮，按下时>0
-    start_pressed_ = (msg->buttons[11] > 0); // 假设buttons[11]为start按钮，按下时>0
-    back_pressed_ = (msg->buttons[10] > 0);  // 假设buttons[10]为back按钮，按下时>0
+    button_pressed_.lt_pressed = (msg->axes[5] > 0.4f);
+    button_pressed_.rt_pressed = (msg->axes[4] > 0.4f);
+    button_pressed_.b_pressed = (msg->buttons[1] > 0);      // 假设buttons[1]为B按钮，按下时>0
+    button_pressed_.a_pressed = (msg->buttons[0] > 0);      // 假设buttons[0]为A按钮，按下时>0
+    button_pressed_.x_pressed = (msg->buttons[3] > 0);      // 假设buttons[3]为A按钮，按下时>0
+    button_pressed_.y_pressed = (msg->buttons[4] > 0);      // 假设buttons[4]为A按钮，按下时>0
+    button_pressed_.start_pressed = (msg->buttons[11] > 0); // 假设buttons[11]为start按钮，按下时>0
+    button_pressed_.back_pressed = (msg->buttons[10] > 0);  // 假设buttons[10]为back按钮，按下时>0
 
     // RCLCPP_INFO(node_->get_logger(), "joyCallback ok.");
 }
@@ -153,7 +155,7 @@ void FSM_manager::stateTransitionCallback()
         RCLCPP_INFO(node_->get_logger(), "基于 service 响应确认状态更新。");
         last_transition_success_ = false;  // 重置
     }
-    if (lt_pressed_ && b_pressed_)
+    if (button_pressed_.lt_pressed && button_pressed_.b_pressed)
     {
         if (FSM_state_ == FSM_state::rl_run_state)
         {
@@ -161,7 +163,7 @@ void FSM_manager::stateTransitionCallback()
             RCLCPP_INFO(node_->get_logger(), "change state from rl_run_state to default_state.");
         }
     }
-    else if (lt_pressed_ && a_pressed_)
+    else if (button_pressed_.lt_pressed && button_pressed_.a_pressed)
     {
         if (FSM_state_ == FSM_state::default_state) // 替换为您的实际条件
         {
@@ -169,7 +171,7 @@ void FSM_manager::stateTransitionCallback()
             RCLCPP_INFO(node_->get_logger(), "change state from default_state to rl_run_state.");
         }
     }
-    else if (lt_pressed_ && start_pressed_)
+    else if (button_pressed_.lt_pressed && button_pressed_.start_pressed)
     {
         if (FSM_state_ == FSM_state::init_state)
         {
@@ -177,17 +179,25 @@ void FSM_manager::stateTransitionCallback()
             RCLCPP_INFO(node_->get_logger(), "change state from init_state to default_state.");
         }
     }
-    else if (lt_pressed_ && back_pressed_)
+    else if (button_pressed_.lt_pressed && button_pressed_.back_pressed)
     {
         FSM_state_ = FSM_state::init_state;
         RCLCPP_INFO(node_->get_logger(), "change state to init_state.");
     }
-    else if(rt_pressed_ && start_pressed_)
+    else if(button_pressed_.rt_pressed && button_pressed_.a_pressed)
     {
         if (FSM_state_ == FSM_state::default_state) // 替换为您的实际条件
         {
             FSM_state_ = FSM_state::default_state_wave;
             RCLCPP_INFO(node_->get_logger(), "change state from default_state to default_state_wave.");
+        }
+    }
+    else if(button_pressed_.rt_pressed && button_pressed_.b_pressed)
+    {
+        if (FSM_state_ == FSM_state::default_state) // 替换为您的实际条件
+        {
+            FSM_state_ = FSM_state::default_state_greeting;
+            RCLCPP_INFO(node_->get_logger(), "change state from default_state to default_state_greeting.");
         }
     }
     std_msgs::msg::Int32 state_msg;

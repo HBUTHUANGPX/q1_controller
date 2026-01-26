@@ -169,8 +169,8 @@ Eigen::VectorXf rl_control::inference()
     // RCLCPP_INFO(this->get_logger(), "motor_manager_");
     time_step_ += 1.0;
     // if (time_step_ >= 100.0f)
-    if (time_step_ >= 50*8)
-    // if (time_step_ >= motion_loader_->getTimeStepTotal())
+    // if (time_step_ >= 50*8)
+    if (time_step_ >= motion_loader_->getTimeStepTotal())
     {
         time_step_ *= 0.0;
     }

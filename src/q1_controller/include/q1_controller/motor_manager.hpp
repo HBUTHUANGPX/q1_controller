@@ -88,7 +88,7 @@ class MotorManager
     rclcpp::Publisher<q1_controller::msg::MultiMotorState>::SharedPtr multi_motor_state_pub_;                // 目标位置发布器
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_recv_pub_,state_ctrl_pub_;          // 目标位置发布器
-
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr left_hand_control;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr set_robot_state_publisher_;
     std::shared_ptr<DataStore> data_store_;
     actual_virtual_map avm_;

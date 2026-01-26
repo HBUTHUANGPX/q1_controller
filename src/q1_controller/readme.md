@@ -39,7 +39,7 @@ cd /home/niic/1127/setZero/ti5/examples/build
 # 左臂校零
 sudo ./bin/ethercat_ti5_pp -o 6 -m 0 -f ../../../../hq_code/NIIC_ENI_1113/NIIC_ENI_Ti5_7.xml
 # 右臂校零
-sudo ./bin/ethercat_ti5_pp -o 6 -m 2 -f ../../../../hq_code/NIIC_ENI_1113/NIIC_ENI_Ti5_7.xml
+sudo ./bin/ethercat_ti5_pp -o 6 -m 2 -f ../../../../hq_code/NIIC_ENI_1113/NIIC_ENI_Ti5_8.xml
 
 cd /home/niic/1127/setZero/encos/app_cpp/build
 sudo ./master_stack_test
@@ -72,7 +72,8 @@ sudo -E bash sudoros2.sh run q1_controller gamepad_publisher.py
 sudo -E bash sudoros2.sh launch hipnuc_imu imu_spec_msg.launch.py
 sudo -E bash sudoros2.sh launch q1_controller robot_state_publisher.launch.py
 
-
+sudo -E bash sudoros2.sh run q1_controller tts_say.py
+sudo -E bash sudoros2.sh run q1_controller voice_trigger.py
 
 sudo -E bash sudoros2.sh bag record /joint_states
 

@@ -73,7 +73,7 @@ class MotorBase
      * @param max_torque 最大扭矩。
      * @param default_pos 默认位置。
      */
-    MotorBase(const std::string &name, float kp, float kd, float max_torque,float trans_eff, float nominal_pos, float urdf_offset,
+    MotorBase(const std::string &name, bool use_implicit, float kp, float kd, float max_torque,float trans_eff, float nominal_pos, float urdf_offset,
               int id, int ec_id, int direction,const std::string &_motor_type );
 
     /**
@@ -121,17 +121,17 @@ class MotorBase
 
     float getCurrentPos() const
     {
-        return pos_ + urdf_offset_;
-        // return pos_ - offset_pos_;
-        // return pos_ + offset_pos_;
+        return cur_pos_ + urdf_offset_;
+        // return cur_pos_ - offset_pos_;
+        // return cur_pos_ + offset_pos_;
     }
     float getCurrentVel() const
     {
-        return vel_;
+        return cur_vel_;
     }
     float getCurrentFFT() const
     {
-        return fft_;
+        return cur_fft_;
     }
     int getID() const
     {
@@ -144,25 +144,25 @@ class MotorBase
 
     void writeCurrentPos(float value)
     {
-        pos_ = value * direction_;
+        cur_pos_ = value * direction_;
     }
 
     void rewriteCurrentPos(float value)
     {
-        pos_ = value * direction_;
+        cur_pos_ = value * direction_;
     }
 
     void writeCurrentVel(float value)
     {
-        vel_ = value * direction_;
+        cur_vel_ = value * direction_;
     }
     void rewriteCurrentVel(float value)
     {
-        vel_ = value * direction_;
+        cur_vel_ = value * direction_;
     }
     void writeCurrentFFT(float value)
     {
-        fft_ = value * direction_;
+        cur_fft_ = value * direction_;
     }
     void writeCurrentTimeStamp(uint64_t micros)
     {
@@ -178,19 +178,33 @@ class MotorBase
     */
     float getTargetPos()
     {
-        return motor_data.pos;
+        return tgt_pos_;
     }
     void setTargetPos(float value) // 将action数据给入
     {
-        motor_data.pos = (value + offset_pos_) * direction_; //  对于实机，此时需要进行方向转换
+        tgt_pos_ = (value + offset_pos_) * direction_; //  对于实机，此时需要进行方向转换
         // std::cout << name_ <<" offset_pos_: " << offset_pos_<<"\n";
     }
     void resetTargetPos(float value)
     {
-        motor_data.pos = std::clamp(value, -3.f,3.f);
+        tgt_pos_ = std::clamp(value, -3.f,3.f);
     }
     MotorInfo getMotorInfo()
     {
+        if (use_implicit_)
+        {
+            motor_data.pos = tgt_pos_;
+            motor_data.kp = kp_;
+            motor_data.kd = kd_;
+        }
+        else
+        {   
+            motor_data.pos = 0;
+            motor_data.kp = 0;
+            motor_data.kd = 0;
+            motor_data.tor = kp_ * (tgt_pos_ - cur_pos_) - kd_ * cur_vel_;
+        }
+        
         return motor_data;
     }
     int getDirection() const
@@ -229,8 +243,9 @@ class MotorBase
     float max_torque_;                // 最大扭矩
     float trans_eff_;
     float nominal_pos_, urdf_offset_,offset_pos_; // 默认位置
-    float pos_, vel_, fft_;           // 当前 位置、速度、力矩
-    float target_pos_;
+    float cur_pos_, cur_vel_, cur_fft_;           // 当前 位置、速度、力矩
+    float tgt_pos_;
+    bool use_implicit_;
     uint64_t micros_time;
     int id_, ec_id_, direction_;
     motor_type motor_type_;

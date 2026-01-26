@@ -67,7 +67,7 @@ find_package(std_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(ZLIB REQUIRED)  # 添加 zlib 依赖
 find_package(tf2_geometry_msgs REQUIRED)
-
+find_package(dexterous_hand REQUIRED)
 include_directories(
   include
   ${EIGEN3_INCLUDE_DIR}
@@ -236,6 +236,11 @@ endif()
 
 add_executable(simple_node test/test_simple_node.cpp)
 ament_target_dependencies(simple_node rclcpp sensor_msgs std_msgs)
+
+add_executable(hand_node test/test_hand.cpp)
+ament_target_dependencies(hand_node rclcpp sensor_msgs std_msgs dexterous_hand)
+install(TARGETS hand_node DESTINATION lib/${PROJECT_NAME})
+
 install(TARGETS rl_motor DESTINATION lib/${PROJECT_NAME})
 
 # 安装Python脚本
@@ -244,6 +249,8 @@ install(PROGRAMS
   q1_controller/bringup_joystick.py
   q1_controller/bringup_webserver.py
   q1_controller/gamepad_publisher.py
+  q1_controller/voice_trigger.py
+  q1_controller/tts_say.py
   DESTINATION lib/${PROJECT_NAME}
 )
 # 安装目录
