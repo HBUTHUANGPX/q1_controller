@@ -9,11 +9,22 @@ import struct
 import time
 import json
 from threading import Thread, Event, Lock
-from socket import socket, AF_INET, SOCK_STREAM
+#from socket import socket, AF_INET, SOCK_STREAM, create_connection, SOCK_DGRAM
+import socket
+
+import subprocess
+import sys
+import ipaddress
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+
+USE_STATIC_IP = False        # WiFi+MAC发现 => False；固定IP直连 => True
 TARGET_PORT = 19199
 TARGET_IP = "192.168.50.6"  # 改成设置的的开发板IP；推荐固定租约后用 192.168.50.x
+TRUSTED_MAC = "2a:de:ef:f7:8d:6b".lower()      #无线mac
+SCAN_TIMEOUT = 8
+MAX_WORKERS = 50
 
 # ============================
 # 连接/发送参数（可调）
@@ -51,6 +62,123 @@ BOOST_WINDOW_S = 8.0          # [BOOST] warm-up 完成后的 N 秒内启用补�
 BOOST_DELAY_S = 0.06          # [BOOST] 补发前短等待
 
 
+#==============连接开发板============
+# 获取本机网段
+def get_local_network():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+        network = ipaddress.IPv4Network(f"{local_ip}/24", strict=False)
+        print(f"本机 IP: {local_ip} | 扫描网段: {network}")
+        return network, local_ip
+    except Exception as e:
+        print(f"获取本机网络失败: {e}，使用默认 192.168.1.0/24")
+        return ipaddress.IPv4Network("192.168.1.0/24"), "192.168.1.1"
+
+
+# 从 ARP 表获取 MAC（Linux）
+def get_mac_by_ip(ip):
+    try:
+        with open("/proc/net/arp", "r") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 4 and parts[0] == ip:
+                    mac = parts[3].lower()
+                    if mac != "00:00:00:00:00:00":
+                        return mac
+    except Exception as e:
+        print(f" 读取 ARP 表出错: {e}")
+    return None
+
+
+# 探测主机：用 ping 触发 ARP，再校验 MAC
+def probe_host(ip_str):
+    #print(f"尝试探测 {ip_str} ...", end="\r")
+    # 策略 1: 先尝试 ping
+    try:
+        result = subprocess.run(["ping", "-c", "1", "-W", "1", ip_str],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            time.sleep(0.1)
+            mac = get_mac_by_ip(ip_str)
+            if mac == TRUSTED_MAC:
+                print(f"ping匹配到目标 MAC! IP={ip_str}, MAC={mac}")
+                return ip_str
+    except:
+        pass
+
+    # 策略 2: ping 失败，尝试 TCP 连接 19199
+    try:
+        with socket.create_connection((ip_str, TARGET_PORT), timeout=0.5):
+            pass  # 触发 ARP
+        time.sleep(0.1)
+        mac = get_mac_by_ip(ip_str)
+        if mac == TRUSTED_MAC:
+            print(f"TCP匹配到目标 MAC! IP={ip_str}, MAC={mac}")
+            return ip_str
+    except Exception as e:
+        #print(f"TCP probe {ip_str} failed: {e}")
+        pass
+
+    return None
+
+
+# [NEW STATIC IP] 新增：固定 IP 可达性检查（不改变业务，只用于决定是否可以直连）
+def check_static_ip_reachable(ip_str, port=TARGET_PORT):
+    """
+    仅用于：固定 IP 模式下，启动前快速判断是否可连。
+    - 先试 TCP 端口（最快且最贴近真实需求）
+    - TCP 不通再 ping（有些设备禁 ping，ping 失败不代表不可用）
+    """
+    # 1) TCP 探测
+    try:
+        with socket.create_connection((ip_str, port), timeout=1.0):
+            return True
+    except Exception:
+        pass
+
+    # 2) Ping 探测（可选）
+    try:
+        result = subprocess.run(["ping", "-c", "1", "-W", "1", ip_str],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # ping 通只能说明网络通，不代表端口通
+        return result.returncode == 0
+    except Exception:
+        return False
+    
+def resolve_target_ip():
+    # 1) 固定 IP 模式：直接用 TARGET_IP
+    if USE_STATIC_IP:
+        # 可选：复用 main 的 check_static_ip_reachable
+        # if not check_static_ip_reachable(TARGET_IP, port=TARGET_PORT):
+        #     raise RuntimeError(f"STATIC_IP unreachable: {TARGET_IP}:{TARGET_PORT}")
+        return TARGET_IP
+
+    # 2) 扫描模式：复用 main 的扫描代码（ThreadPoolExecutor + probe_host）
+    network, local_ip = get_local_network()
+    hosts = [str(ip) for ip in network.hosts() if str(ip) != local_ip]
+
+    found = None
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(probe_host, ip): ip for ip in hosts}
+        try:
+            for future in as_completed(futures, timeout=SCAN_TIMEOUT):
+                result = future.result()
+                if result:
+                    found = result
+                    return result
+        except Exception as e:
+            raise RuntimeError(f"scan timeout/error: {e}")
+
+    if not found:
+        raise RuntimeError(f"MAC scan failed, TRUSTED_MAC={TRUSTED_MAC}")
+
+    return found
+
+
+
+
 class AIUIClient:
     def __init__(self, server_ip, server_port=TARGET_PORT):
         self.server_ip_port = (server_ip, server_port)
@@ -69,7 +197,7 @@ class AIUIClient:
                     except Exception:
                         pass
  
-                self.client_socket = socket(AF_INET, SOCK_STREAM)
+                self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.client_socket.settimeout(SOCKET_TIMEOUT_S)
                 self.client_socket.connect(self.server_ip_port)
 
@@ -172,7 +300,7 @@ class AIUITTSNode(Node):
             String, '/tts_say', self.tts_callback, 10
         )
 
-        self.get_logger().info(f"TTS Node started. Target={TARGET_IP}:{TARGET_PORT}")
+        self.get_logger().info(f"TTS Node started. static={USE_STATIC_IP}, Port={TARGET_PORT}")
 
     def tts_callback(self, msg: String):
         text = (msg.data or "").strip()
@@ -205,7 +333,10 @@ class AIUITTSNode(Node):
                 return
 
             self.get_logger().info("Connecting AIUI...")
-            self.aiui_client = AIUIClient(TARGET_IP, TARGET_PORT)
+            ip = resolve_target_ip()
+            self.get_logger().info(f"AIUI target ip = {ip} (static={USE_STATIC_IP})")
+            self.aiui_client = AIUIClient(ip, TARGET_PORT)
+
             self.get_logger().info("AIUI connected.")
 
             # ==========================

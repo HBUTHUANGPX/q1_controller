@@ -244,6 +244,11 @@ install(PROGRAMS
   q1_controller/gamepad_publisher.py
   q1_controller/tts_say.py
   q1_controller/voice_trigger.py
+  q1_controller/aiui_gateway.py
+  q1_controller/aiui_gateway_config.py
+  q1_controller/aiui_gateway_tts_engine.py
+  q1_controller/processStrategy.py
+  q1_controller/utils_log.py
   DESTINATION lib/${PROJECT_NAME}
 )
 # 安装目录
