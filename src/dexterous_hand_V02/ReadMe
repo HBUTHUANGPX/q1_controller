@@ -1,0 +1,32 @@
+一、代码编译
+cd dexterous_hand
+# 编译功能包
+colcon build --packages-select dexterous_hand --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+
+二、启动方式
+模式 1：双手模式（默认，不写参数也可以）
+source ./install/local_setup.sh
+ros2 run dexterous_hand hand_node
+# 等价于带参数写法
+ros2 run dexterous_hand hand_node --ros-args -p hand_mode:=dual_hand
+
+模式 2：只启动左手 (仅 CAN0 + 左手)
+ros2 run dexterous_hand hand_node --ros-args -p hand_mode:=left_only
+
+模式 3：只启动右手 (仅 CAN1 + 右手)
+ros2 run dexterous_hand hand_node --ros-args -p hand_mode:=right_only
+
+# 调试模式（打印更多日志信息）
+ros2 run dexterous_hand hand_node --ros-args --log-level DEBUG
+
+
+三、硬件连接
+左灵巧手接国讯芯微can0总线, 右灵巧手接国讯芯微can1总线.
+
+
+四、特殊定制功能
+# 左手抱拳
+ros2 topic pub --once /control/hand/custom std_msgs/msg/Int32 "{data: 1}"
+# 释放左手抱拳
+ros2 topic pub --once /control/hand/custom std_msgs/msg/Int32 "{data: 0}"
