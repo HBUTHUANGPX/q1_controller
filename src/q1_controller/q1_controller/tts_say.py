@@ -19,9 +19,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 
-USE_STATIC_IP = False        # WiFi+MAC发现 => False；固定IP直连 => True
+USE_STATIC_IP = False       # 多网口扫描端口 => False；测试用 固定IP直连 => True
 TARGET_PORT = 19199
-TARGET_IP = "192.168.50.6"  # 改成设置的的开发板IP；推荐固定租约后用 192.168.50.x
+TARGET_IP = "192.168.50.8"  # 改成设置的的开发板IP；推荐固定租约后用 192.168.50.x
 TRUSTED_MAC = "2a:de:ef:f7:8d:6b".lower()      #无线mac
 SCAN_TIMEOUT = 8
 MAX_WORKERS = 50
@@ -63,6 +63,121 @@ BOOST_DELAY_S = 0.06          # [BOOST] 补发前短等待
 
 
 #==============连接开发板============
+def _get_default_route_if() -> str | None:
+    """返回默认路由接口名（公司网口/上网口），用于排除"""
+    try:
+        out = subprocess.check_output(["ip", "route", "show", "default"], text=True).strip()
+        # 例：default via 10.130.96.1 dev eno1 proto dhcp metric 100
+        for line in out.splitlines():
+            parts = line.split()
+            if "dev" in parts:
+                return parts[parts.index("dev") + 1]
+    except Exception:
+        pass
+    return None
+
+
+def _carrier_is_up(ifname: str) -> bool:
+    try:
+        with open(f"/sys/class/net/{ifname}/carrier", "r") as f:
+            return f.read().strip() == "1"
+    except Exception:
+        return False
+
+
+def _list_control_networks() -> list[tuple[str, ipaddress.IPv4Network, str]]:
+    """
+    返回控制口列表：[(ifname, network, local_ip), ...]
+    过滤规则：
+      - 排除 lo / wlan* / docker* / veth* / br-* 等
+      - 排除默认路由口
+      - 必须 carrier=1（网线插着）
+      - 必须存在 IPv4 地址
+    """
+    default_if = _get_default_route_if()
+
+    try:
+        j = subprocess.check_output(["ip", "-j", "addr", "show"], text=True)
+        data = json.loads(j)
+    except Exception as e:
+        print(f"[DISCOVERY] ip -j addr show failed: {e}")
+        return []
+
+    ctrl = []
+    for it in data:
+        ifname = it.get("ifname", "")
+        if not ifname:
+            continue
+
+        # quick exclude
+        if ifname == "lo" or ifname.startswith("wl") or ifname.startswith("docker") or ifname.startswith("veth") or ifname.startswith("br-"):
+            continue
+        if default_if and ifname == default_if:
+            continue
+        if not _carrier_is_up(ifname):
+            continue
+
+        addrs = it.get("addr_info", [])
+        for a in addrs:
+            if a.get("family") != "inet":
+                continue
+            local_ip = a.get("local")
+            prefixlen = a.get("prefixlen")
+            if not local_ip or prefixlen is None:
+                continue
+
+            # 例如 local_ip=192.168.50.1, prefixlen=24
+            net = ipaddress.IPv4Network(f"{local_ip}/{prefixlen}", strict=False)
+            ctrl.append((ifname, net, local_ip))
+            break  # 一个接口取一个 IPv4 即可
+
+    return ctrl
+
+
+def _try_connect(ip_str: str, port: int, timeout_s: float = 0.25) -> bool:
+    try:
+        with socket.create_connection((ip_str, port), timeout=timeout_s):
+            return True
+    except Exception:
+        return False
+
+
+def _scan_19199_on_network(net: ipaddress.IPv4Network, local_ip: str, port: int) -> str | None:
+    # 只扫可用主机，跳过本机 IP
+    hosts = [str(ip) for ip in net.hosts() if str(ip) != local_ip]
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futs = {ex.submit(_try_connect, ip, port): ip for ip in hosts}
+        for fut in as_completed(futs, timeout=SCAN_TIMEOUT):
+            if fut.result():
+                return futs[fut]
+    return None
+
+def resolve_target_ip():
+    # 1) 固定 IP 模式：保留给调试用
+    if USE_STATIC_IP:
+        return TARGET_IP
+
+    # 2) 多控制口扫描：每个控制口子网内找 19199
+    ctrl_nets = _list_control_networks()
+    if not ctrl_nets:
+        raise RuntimeError("[DISCOVERY] No control interfaces found (check carrier/ip).")
+
+    print("[DISCOVERY] candidate control nets:")
+    for ifname, net, local_ip in ctrl_nets:
+        print(f"  - {ifname}: {local_ip} in {net}")
+
+    # 逐网口扫描（你也可以改成并发扫多个网段；先串行更稳、日志更清楚）
+    for ifname, net, local_ip in ctrl_nets:
+        print(f"[DISCOVERY] scanning {ifname} {net} for port {TARGET_PORT} ...")
+        found = _scan_19199_on_network(net, local_ip, TARGET_PORT)
+        if found:
+            print(f"[DISCOVERY] FOUND {found}:{TARGET_PORT} on {ifname} ({net})")
+            return found
+
+    raise RuntimeError("[DISCOVERY] no device with port 19199 found on control nets.")
+
+'''
 # 获取本机网段
 def get_local_network():
     try:
@@ -176,7 +291,7 @@ def resolve_target_ip():
 
     return found
 
-
+'''
 
 
 class AIUIClient:
@@ -247,7 +362,7 @@ class AIUIClient:
                 "action": "start",
                 "text": text,
                 "parameters": {
-                    "vcn": "x4_lingxiaoqi_oral",
+                    "vcn": "xiaoyan",
                     "data_type": "text",
                     "scene": "IFLYTEK.tts",
                     "emot": "neutral"
@@ -314,15 +429,15 @@ class AIUITTSNode(Node):
         self.get_logger().info(f"[RECV] {text}")
 
     def _auto_init_aiui(self):
-        """
-        [WARMUP] 程序启动后自动连接 AIUI 并完成 warm-up
-        """
         self.get_logger().info("[AUTO_INIT] start")
-        try:
-            self._ensure_connected()
-            self.get_logger().info("[AUTO_INIT] done")
-        except Exception as e:
-            self.get_logger().warn(f"[AUTO_INIT] failed: {e}")
+        while not self.shutdown_event.is_set():
+            try:
+                self._ensure_connected()
+                self.get_logger().info("[AUTO_INIT] done")
+                return
+            except Exception as e:
+                self.get_logger().warn(f"[AUTO_INIT] failed: {e} (retry in 2s)")
+                time.sleep(2.0)
 
     def _ensure_connected(self):
         """

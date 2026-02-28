@@ -8,7 +8,7 @@ from std_msgs.msg import String
 class VoiceTriggerNode(Node):
     def __init__(self):
         super().__init__('voice_trigger')
-        self.b_was_pressed = False
+        self.b_was_pressed = True
         self.a_was_pressed = False
         self.tts_pub = self.create_publisher(String, '/tts_say', 10)
         self.joy_sub = self.create_subscription(
@@ -21,14 +21,14 @@ class VoiceTriggerNode(Node):
             return
         b_is_pressed = msg.buttons[1] > 0
         if not self.b_was_pressed and b_is_pressed: # B按键：打招呼
-            text = "你好，我是Q1机器人，很高兴见到你"
+            text = "打招呼"
             self.tts_pub.publish(String(data=text))
             self.get_logger().info(f"触发语音: {text}")
         self.b_was_pressed = b_is_pressed
 
         a_is_pressed = msg.buttons[0] > 0
         if not self.a_was_pressed and a_is_pressed: # A按键：拜年
-            text = "Q1给大家拜年啦"
+            text = "Q1啦"
             self.tts_pub.publish(String(data=text))
             self.get_logger().info(f"触发语音: {text}")
         self.a_was_pressed = a_is_pressed
