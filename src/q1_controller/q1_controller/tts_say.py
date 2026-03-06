@@ -9,14 +9,12 @@ import struct
 import time
 import json
 from threading import Thread, Event, Lock
-#from socket import socket, AF_INET, SOCK_STREAM, create_connection, SOCK_DGRAM
 import socket
 
 import subprocess
 import sys
 import ipaddress
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 
 
 USE_STATIC_IP = False       # 多网口扫描端口 => False；测试用 固定IP直连 => True
@@ -33,11 +31,17 @@ SOCKET_TIMEOUT_S = 5        # socket超时
 RECONNECT_DELAY_S = 1.0     # 重连间隔
 
 # ============================
+# 【简化方案】空闲重建参数（核心改动）
+# ============================
+IDLE_RECONNECT_THRESHOLD = 90.0  # 空闲超过90秒就强制重建连接（避免Broken pipe）
+# 根据你的日志，5分钟会出问题，所以设为1.5分钟保守一点
+
+# ============================
 # 播放稳定性关键参数（可调）
 # ============================
 STOP_SETTLE_S = 0.15        # stop 后等待 AIUI 状态切换（稳定关键，建议 0.12~0.20）
 # 冷启动阶段更稳一点：更长 settle + start 补发一次
-COLD_START_WINDOW_S = 12.0  # 冷启动阶段持续时长（秒）
+COLD_START_WINDOW_S = 6.0   # 【简化】从12秒减到6秒，因为重建频率高了
 COLD_STOP_SETTLE_S = 0.28   # 冷启动阶段 stop 后等待（更长更稳）
 COLD_START_BOOST_DELAY_S = 0.10  # 冷启动阶段补发 start 前等待
 
@@ -45,12 +49,12 @@ COLD_START_BOOST_DELAY_S = 0.10  # 冷启动阶段补发 start 前等待
 # [WARMUP] 启动热身/就绪门禁参数（可调）
 # ==========================================================
 AUTO_WARMUP_ON_START = True   # [WARMUP] 节点启动后自动连接并热身（不依赖第一次按键）
-READY_DELAY_S = 2.0           # [WARMUP] warm-up 后至少等这么久再放行真实播报（建议 1.5~4.0）
+READY_DELAY_S = 1.0           # 【简化】从2.0减到1.0秒，加快响应
 
 # [WARMUP] 强力热身：推荐用更明显的内容，"嗯" 太短经常听不到
 WARMUP_TEXT = "1"             # [WARMUP] 可选： "测试" / "一" / "1"
-WARMUP_REPEAT = 4             # [WARMUP] 连发次数（建议 2~4）
-WARMUP_GAP_S = 0.6           # [WARMUP] 每次 start 后等待，让对端有机会真正开始出声
+WARMUP_REPEAT = 2             # 【简化】从4减到2次，加快启动
+WARMUP_GAP_S = 0.4            # 【简化】从0.6减到0.4秒
 WARMUP_STOP_BETWEEN = True    # [WARMUP] 前几次之间是否 stop（建议 True）
 WARMUP_STOP_GAP_S = 0.08      # [WARMUP] stop 后等待
 
@@ -58,7 +62,7 @@ WARMUP_STOP_GAP_S = 0.08      # [WARMUP] stop 后等待
 # [BOOST] 刚 warm-up/刚重连阶段补发一次 start（比每次retry温和）
 # ==========================================================
 ENABLE_BOOST = True
-BOOST_WINDOW_S = 8.0          # [BOOST] warm-up 完成后的 N 秒内启用补发
+BOOST_WINDOW_S = 5.0          # 【简化】从8.0减到5.0秒
 BOOST_DELAY_S = 0.06          # [BOOST] 补发前短等待
 
 
@@ -177,122 +181,6 @@ def resolve_target_ip():
 
     raise RuntimeError("[DISCOVERY] no device with port 19199 found on control nets.")
 
-'''
-# 获取本机网段
-def get_local_network():
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-        network = ipaddress.IPv4Network(f"{local_ip}/24", strict=False)
-        print(f"本机 IP: {local_ip} | 扫描网段: {network}")
-        return network, local_ip
-    except Exception as e:
-        print(f"获取本机网络失败: {e}，使用默认 192.168.1.0/24")
-        return ipaddress.IPv4Network("192.168.1.0/24"), "192.168.1.1"
-
-
-# 从 ARP 表获取 MAC（Linux）
-def get_mac_by_ip(ip):
-    try:
-        with open("/proc/net/arp", "r") as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) >= 4 and parts[0] == ip:
-                    mac = parts[3].lower()
-                    if mac != "00:00:00:00:00:00":
-                        return mac
-    except Exception as e:
-        print(f" 读取 ARP 表出错: {e}")
-    return None
-
-
-# 探测主机：用 ping 触发 ARP，再校验 MAC
-def probe_host(ip_str):
-    #print(f"尝试探测 {ip_str} ...", end="\r")
-    # 策略 1: 先尝试 ping
-    try:
-        result = subprocess.run(["ping", "-c", "1", "-W", "1", ip_str],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if result.returncode == 0:
-            time.sleep(0.1)
-            mac = get_mac_by_ip(ip_str)
-            if mac == TRUSTED_MAC:
-                print(f"ping匹配到目标 MAC! IP={ip_str}, MAC={mac}")
-                return ip_str
-    except:
-        pass
-
-    # 策略 2: ping 失败，尝试 TCP 连接 19199
-    try:
-        with socket.create_connection((ip_str, TARGET_PORT), timeout=0.5):
-            pass  # 触发 ARP
-        time.sleep(0.1)
-        mac = get_mac_by_ip(ip_str)
-        if mac == TRUSTED_MAC:
-            print(f"TCP匹配到目标 MAC! IP={ip_str}, MAC={mac}")
-            return ip_str
-    except Exception as e:
-        #print(f"TCP probe {ip_str} failed: {e}")
-        pass
-
-    return None
-
-
-# [NEW STATIC IP] 新增：固定 IP 可达性检查（不改变业务，只用于决定是否可以直连）
-def check_static_ip_reachable(ip_str, port=TARGET_PORT):
-    """
-    仅用于：固定 IP 模式下，启动前快速判断是否可连。
-    - 先试 TCP 端口（最快且最贴近真实需求）
-    - TCP 不通再 ping（有些设备禁 ping，ping 失败不代表不可用）
-    """
-    # 1) TCP 探测
-    try:
-        with socket.create_connection((ip_str, port), timeout=1.0):
-            return True
-    except Exception:
-        pass
-
-    # 2) Ping 探测（可选）
-    try:
-        result = subprocess.run(["ping", "-c", "1", "-W", "1", ip_str],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # ping 通只能说明网络通，不代表端口通
-        return result.returncode == 0
-    except Exception:
-        return False
-    
-def resolve_target_ip():
-    # 1) 固定 IP 模式：直接用 TARGET_IP
-    if USE_STATIC_IP:
-        # 可选：复用 main 的 check_static_ip_reachable
-        # if not check_static_ip_reachable(TARGET_IP, port=TARGET_PORT):
-        #     raise RuntimeError(f"STATIC_IP unreachable: {TARGET_IP}:{TARGET_PORT}")
-        return TARGET_IP
-
-    # 2) 扫描模式：复用 main 的扫描代码（ThreadPoolExecutor + probe_host）
-    network, local_ip = get_local_network()
-    hosts = [str(ip) for ip in network.hosts() if str(ip) != local_ip]
-
-    found = None
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(probe_host, ip): ip for ip in hosts}
-        try:
-            for future in as_completed(futures, timeout=SCAN_TIMEOUT):
-                result = future.result()
-                if result:
-                    found = result
-                    return result
-        except Exception as e:
-            raise RuntimeError(f"scan timeout/error: {e}")
-
-    if not found:
-        raise RuntimeError(f"MAC scan failed, TRUSTED_MAC={TRUSTED_MAC}")
-
-    return found
-
-'''
-
 
 class AIUIClient:
     def __init__(self, server_ip, server_port=TARGET_PORT):
@@ -301,6 +189,8 @@ class AIUIClient:
         self.stop_event = Event()
         self.msg_id = 1
         self._send_lock = Lock()  # 串行化发送，避免并发写 socket 造成包错乱
+        self._last_send_mono = 0.0   # 上次成功 sendall 的时间
+        
         self.connect()
 
     def connect(self):
@@ -316,23 +206,40 @@ class AIUIClient:
                 self.client_socket.settimeout(SOCKET_TIMEOUT_S)
                 self.client_socket.connect(self.server_ip_port)
 
+                # 减少小包延迟，避免影响 stop->start 的快速响应
+                self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+                # 启用 TCP keepalive，帮助发现"死连接"
+                self.client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                try:
+                    self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+                    self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
+                    self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+                except Exception:
+                    pass  # 某些系统不支持这些选项也没关系
+
                 # 初始化配置
                 self.send_control_message({"type": "voice", "content": {"enable_voice": True}})
                 self.send_control_message({"type": "voice", "content": {"vol_value": 15}})
-                '''
-                self.send_control_message({
-                    "type": "aiui_msg",
-                    "content": {"msg_type": 9, "arg1": 30000, "arg2": 5000, "params": "timeout_config"}
-                })
-                self.send_control_message({
-                    "type": "aiui_msg",
-                    "content": {"msg_type": 8, "arg1": 0, "arg2": 0, "params": "", "data": ""}
-                })
-                '''
+                
                 return
             except Exception as e:
                 print(f"[AIUI] 连接失败: {e}. {RECONNECT_DELAY_S}秒后重试...")
                 time.sleep(RECONNECT_DELAY_S)
+
+    def _is_socket_alive(self) -> bool:
+        """简单检查：尝试非阻塞 recv，只对端主动关闭才返回 False"""
+        if not self.client_socket:
+            return False
+        try:
+            data = self.client_socket.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+            if data == b'':
+                return False
+        except BlockingIOError:
+            return True
+        except Exception:
+            return False
+        return True
 
     def send_control_message(self, control_json: dict):
         payload_bytes = json.dumps(control_json, separators=(',', ':')).encode('utf-8')
@@ -348,7 +255,15 @@ class AIUIClient:
         packet = all_bytes + bytes([checksum])
 
         with self._send_lock:
-            self.client_socket.send(packet)
+            # 检查主连接是否被对端关闭
+            if not self._is_socket_alive():
+                raise ConnectionError("socket not alive (peer closed)")
+
+            try:
+                self.client_socket.sendall(packet)
+                self._last_send_mono = time.monotonic()
+            except (socket.timeout, BrokenPipeError, ConnectionResetError, OSError) as e:
+                raise ConnectionError(f"send failed: {e}")
 
     # 抢占停止
     def tts_stop(self):
@@ -362,7 +277,7 @@ class AIUIClient:
                 "action": "start",
                 "text": text,
                 "parameters": {
-                    "vcn": "xiaoyan",
+                    "vcn": "yifeng",
                     "data_type": "text",
                     "scene": "IFLYTEK.tts",
                     "emot": "neutral"
@@ -401,6 +316,10 @@ class AIUITTSNode(Node):
         # 冷启动窗口（启动后前 N 秒更稳一点）
         self._startup_until = time.time() + COLD_START_WINDOW_S
 
+        # 【简化方案】统计信息
+        self._send_count = 0
+        self._reconnect_count = 0
+
         # 工作线程：负责发送（统一出口，避免乱序）
         self.worker = Thread(target=self._worker_loop, daemon=True)
         self.worker.start()
@@ -415,7 +334,7 @@ class AIUITTSNode(Node):
             String, '/tts_say', self.tts_callback, 10
         )
 
-        self.get_logger().info(f"TTS Node started. static={USE_STATIC_IP}, Port={TARGET_PORT}")
+        self.get_logger().info(f"TTS Node started. static={USE_STATIC_IP}, Port={TARGET_PORT}, idle_threshold={IDLE_RECONNECT_THRESHOLD}s")
 
     def tts_callback(self, msg: String):
         text = (msg.data or "").strip()
@@ -445,9 +364,19 @@ class AIUITTSNode(Node):
         """
         with self._conn_lock:  # 互斥：禁止并发 connect/warm-up
             if self.aiui_client is not None:
-                return
+                # 健康检查：如果 socket 已死，关闭重建
+                try:
+                    if not self.aiui_client._is_socket_alive():
+                        self.get_logger().warn("AIUI socket not alive -> reconnect")
+                        self.aiui_client.close()
+                        self.aiui_client = None
+                    else:
+                        return
+                except Exception:
+                    self.aiui_client = None
 
-            self.get_logger().info("Connecting AIUI...")
+            self._reconnect_count += 1
+            self.get_logger().info(f"Connecting AIUI... (reconnect_count={self._reconnect_count})")
             ip = resolve_target_ip()
             self.get_logger().info(f"AIUI target ip = {ip} (static={USE_STATIC_IP})")
             self.aiui_client = AIUIClient(ip, TARGET_PORT)
@@ -455,7 +384,7 @@ class AIUITTSNode(Node):
             self.get_logger().info("AIUI connected.")
 
             # ==========================
-            # [WARMUP] 连接成功后热身（强力 xN）
+            # [WARMUP] 连接成功后热身（简化版 x2）
             # ==========================
             self._ready_at = time.time() + READY_DELAY_S
             try:
@@ -487,15 +416,8 @@ class AIUITTSNode(Node):
             )
 
     def _worker_loop(self):
-        """
-        发送线程（稳定版）：
-        - 只播最新触发（通过 latest_id 判断新触发）
-        - 每次新触发都 stop -> wait -> start（打断旧播报）
-        - 启动/重连后有就绪门禁，避免“发了但无声”的冷启动阶段
-        - 启动/重连后的短窗口内补发一次 start，提高可靠性
-        - 冷启动窗口（程序刚启动前 N 秒）额外更稳：更长 settle + 再补发一次
-        """
         last_seen_id = 0
+        last_activity_time = time.time()  # 【统一】上次任何活动时间（发送或连接）
 
         while rclpy.ok() and not self.shutdown_event.is_set():
             with self._lock:
@@ -506,28 +428,38 @@ class AIUITTSNode(Node):
                 time.sleep(0.01)
                 continue
 
+            idle_time = time.time() - last_activity_time
+            
             try:
-                self._ensure_connected()
+                if self.aiui_client and idle_time > IDLE_RECONNECT_THRESHOLD:
+                    self.get_logger().info(
+                        f"[IDLE_DETECT] Idle {idle_time:.1f}s > {IDLE_RECONNECT_THRESHOLD}s, "
+                        f"force reconnect (sends={self._send_count}, reconnects={self._reconnect_count})"
+                    )
+                    try:
+                        self.aiui_client.close()
+                    except Exception:
+                        pass
+                    self.aiui_client = None
+                    self._ready_at = 0.0
+                    self._boost_until = 0.0
 
-                # [WARMUP] 就绪门禁：未到时间就先不播
-                # 注意：这里不能更新 last_seen_id，否则会把触发吞掉
+                self._ensure_connected()
+                last_activity_time = time.time()  # 【关键】连接成功后立即更新
+
                 if time.time() < self._ready_at:
                     time.sleep(0.01)
                     continue
 
-                # stop -> wait -> start
                 self.aiui_client.tts_stop()
-
-                # 冷启动窗口：给更长 settle，减少吞 start / 无声
                 settle = COLD_STOP_SETTLE_S if time.time() < self._startup_until else STOP_SETTLE_S
                 time.sleep(settle)
-
                 self.aiui_client.tts_start(text)
 
-
-                # 只有成功发送后才更新 last_seen_id
                 last_seen_id = tid
-                self.get_logger().info(f"[SEND] {text}")
+                last_activity_time = time.time()  # 【关键】发送成功也更新
+                self._send_count += 1
+                self.get_logger().info(f"[SEND] {text} (send_count={self._send_count})")
 
             except Exception as e:
                 self.get_logger().warn(f"TTS error: {e} -> reconnect")
@@ -537,11 +469,9 @@ class AIUITTSNode(Node):
                 except Exception:
                     pass
                 self.aiui_client = None
-
-                # 重连后会重新 warm-up / 重新设置 ready_at / boost_until
                 self._ready_at = 0.0
                 self._boost_until = 0.0
-
+                last_activity_time = 0  # 【关键】出错重置，下次强制重建
                 time.sleep(0.5)
 
     def destroy_node(self):
