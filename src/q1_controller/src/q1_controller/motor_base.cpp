@@ -4,10 +4,10 @@
 /**
  * @brief MotorBase构造函数实现。
  */
-MotorBase::MotorBase(const std::string &name, float kp, float kd, float max_torque,float trans_eff, float nominal_pos,
+MotorBase::MotorBase(const std::string &name, bool use_implicit,float kp, float kd, float max_torque,float trans_eff, float nominal_pos,
                      float urdf_offset, int id, int ec_id, int direction,const std::string &_motor_type)
-    : name_(name), kp_(kp/trans_eff), kd_(kd/trans_eff), max_torque_(max_torque), nominal_pos_(nominal_pos), urdf_offset_(urdf_offset),
-      id_(id), pos_(0), vel_(0), fft_(0), ec_id_(ec_id), direction_(direction),trans_eff_(trans_eff),micros_time(0)
+    : name_(name),use_implicit_(use_implicit), kp_(kp/trans_eff), kd_(kd/trans_eff), max_torque_(max_torque), nominal_pos_(nominal_pos), urdf_offset_(urdf_offset),
+      id_(id), cur_pos_(0), cur_vel_(0), cur_fft_(0), ec_id_(ec_id), direction_(direction),trans_eff_(trans_eff),micros_time(0)
 {
     kp_ = kp/trans_eff;
     kd_ = kd/trans_eff;
@@ -65,8 +65,11 @@ MotorBase::MotorBase(const std::string &name, float kp, float kd, float max_torq
     }
 #if defined(USE_TENSORRT)
     motor_data.id = ec_id_;
-    motor_data.kp = kp_;
-    motor_data.kd = kd_;
+    if (use_implicit_)
+    {
+        motor_data.kp = kp_;
+        motor_data.kd = kd_;
+    }
     motor_data.pos = 0;
     motor_data.vel = 0;
     motor_data.tor = 0;

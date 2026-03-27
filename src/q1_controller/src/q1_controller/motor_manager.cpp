@@ -23,6 +23,15 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
     std::string deploy_mode_ = config["deploy_mode"].as<std::string>();
     std::string sim2sim = "sim2sim";
     std::string sim2real = "sim2real";
+    bool use_implicit_flag_ = config["use_implicit_flag"].as<bool>();
+    if (use_implicit_flag_)
+    {
+        printf("MotorManager:use implicit\r\n");
+    }
+    else{
+        printf("MotorManager:use unimplicit\r\n");
+    }
+    
     for (const auto &item : config["motors"])
     {
         // 检查item是否为Map且仅有一个键值对
@@ -53,7 +62,7 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
             motor_type = params["motor_type"].as<std::string>();
         }
 
-        auto motor = std::make_shared<MotorBase>(name, kp, kd, max_torque, trans_eff, nominal_pos, urdf_offset, id,
+        auto motor = std::make_shared<MotorBase>(name,use_implicit_flag_, kp, kd, max_torque, trans_eff, nominal_pos, urdf_offset, id,
                                                  ec_id, direction,motor_type);
         motors_.push_back(motor);
         name_to_index_[name] = index++;
@@ -137,6 +146,9 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
         /* code */
         state_recv_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
         state_ctrl_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/joint_ctrls", 10);
+        xsens_gmr_joint_sub = node_->create_subscription<sensor_msgs::msg::JointState>(
+            "/xsens_gmr/joint_states", 10, std::bind(&MotorManager::XsensjointCallback, this, std::placeholders::_1));
+        left_hand_control = node_->create_publisher<std_msgs::msg::Int32>("/control/hand/custom", 10);
     }
     else
     {
@@ -149,6 +161,9 @@ MotorManager::MotorManager(rclcpp::Node *node, const YAML::Node &config, std::sh
     set_robot_state_publisher_ = node_->create_publisher<std_msgs::msg::Int32>("/set_robot_state", 10);
     wave_initialized = false;
     wave_phase = 0; // 0:未开始, 1:阶段1, 2:阶段2, 3:阶段3, 4:完成
+    
+    XSENS_joint_state_ = std::make_shared<sensor_msgs::msg::JointState>();
+    XSENS_joint_state_->position.resize(motors_.size(), 0.0);  // 设置默认位置为0
 }
 
 /**
@@ -232,10 +247,10 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
         std::shared_ptr<MotorBase> L_ankle_roll_joint_ = getMotorByName("L_ankle_roll_joint");
         std::shared_ptr<MotorBase> R_ankle_pitch_joint_ = getMotorByName("R_ankle_pitch_joint");
         std::shared_ptr<MotorBase> R_ankle_roll_joint_ = getMotorByName("R_ankle_roll_joint");
-        float L_theta_ = L_ankle_pitch_joint_->getCurrentPos() + ankle_pitch_add_angle_ * 0;
-        float L_phi_ = -L_ankle_roll_joint_->getCurrentPos() + ankle_pitch_add_angle_ * 0;
-        float L_theta_dot_ = L_ankle_pitch_joint_->getCurrentVel();
-        float L_phi_dot_ = -L_ankle_roll_joint_->getCurrentVel();
+        float L_theta_ = -L_ankle_pitch_joint_->getCurrentPos() + ankle_pitch_add_angle_ * 0;
+        float L_phi_ = L_ankle_roll_joint_->getCurrentPos() + ankle_pitch_add_angle_ * 0;
+        float L_theta_dot_ = -L_ankle_pitch_joint_->getCurrentVel();
+        float L_phi_dot_ = L_ankle_roll_joint_->getCurrentVel();
 
         float R_theta_ = -R_ankle_pitch_joint_->getCurrentPos() + ankle_pitch_add_angle_ * 0;
         float R_phi_ = R_ankle_roll_joint_->getCurrentPos() + ankle_pitch_add_angle_ * 0;
@@ -245,17 +260,17 @@ void MotorManager::jointStateUpdate(const std::string &message, int from_port)
         Eigen::Vector2f fk_L_ankle = avm_.ankle_fk(L_phi_, L_theta_);
         Eigen::Vector2f fk_R_ankle = avm_.ankle_fk(R_phi_, R_theta_);
         Eigen::Vector2f vm_L_ankle =
-            avm_.velocity_mapping(L_phi_, L_theta_, fk_L_ankle(0), fk_L_ankle(1), L_phi_dot_, L_theta_dot_);
+            avm_.ankle_velocity_map(L_phi_, L_theta_, fk_L_ankle(0), fk_L_ankle(1), L_phi_dot_, L_theta_dot_);
         Eigen::Vector2f vm_R_ankle =
-            avm_.velocity_mapping(R_phi_, R_theta_, fk_R_ankle(0), fk_R_ankle(1), R_phi_dot_, R_theta_dot_);
-        L_ankle_pitch_joint_->rewriteCurrentPos(fk_L_ankle(0) - ankle_pitch_add_angle_ * 0);
-        L_ankle_pitch_joint_->rewriteCurrentVel(vm_L_ankle(0));
+            avm_.ankle_velocity_map(R_phi_, R_theta_, fk_R_ankle(0), fk_R_ankle(1), R_phi_dot_, R_theta_dot_);
+        L_ankle_pitch_joint_->rewriteCurrentPos(-fk_L_ankle(0) - ankle_pitch_add_angle_ * 0);
+        L_ankle_pitch_joint_->rewriteCurrentVel(-vm_L_ankle(0));
         L_ankle_roll_joint_->rewriteCurrentPos(-fk_L_ankle(1));
-        L_ankle_roll_joint_->rewriteCurrentVel(-vm_L_ankle(1));
+        L_ankle_roll_joint_->rewriteCurrentVel(vm_L_ankle(1));
 
         R_ankle_pitch_joint_->rewriteCurrentPos(fk_R_ankle(0) + ankle_pitch_add_angle_ * 0);
         R_ankle_pitch_joint_->rewriteCurrentVel(vm_R_ankle(0));
-        R_ankle_roll_joint_->rewriteCurrentPos(fk_R_ankle(1));
+        R_ankle_roll_joint_->rewriteCurrentPos(-fk_R_ankle(1));
         R_ankle_roll_joint_->rewriteCurrentVel(vm_R_ankle(1));
 
         for (size_t i = 0; i < motors_.size(); i++)
@@ -321,18 +336,18 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
         std::shared_ptr<MotorBase> R_ankle_pitch_joint_ = getMotorByName_in_id("R_ankle_pitch_joint");
         std::shared_ptr<MotorBase> R_ankle_roll_joint_ = getMotorByName_in_id("R_ankle_roll_joint");
         float L_alpha = L_ankle_pitch_joint_->getTargetPos();
-        float L_beta = -L_ankle_roll_joint_->getTargetPos();
-        auto L_result = avm_.ankle_ik(L_alpha, L_beta);
-        float L_ik_phi = L_result.first;
-        float L_ik_theta = L_result.second;
+        float L_beta = L_ankle_roll_joint_->getTargetPos();
+        auto [L_theta_pos, L_theta_neg, L_phi_pos, L_phi_neg] = avm_.ankle_ik(L_alpha, L_beta);
+        float L_ik_phi = L_phi_neg;
+        float L_ik_theta = L_theta_neg;
         L_ankle_pitch_joint_->resetTargetPos(L_ik_theta); // A
         L_ankle_roll_joint_->resetTargetPos(-L_ik_phi);   // B
 
         float R_alpha = R_ankle_pitch_joint_->getTargetPos();
         float R_beta = R_ankle_roll_joint_->getTargetPos();
-        auto R_result = avm_.ankle_ik(R_alpha, R_beta);
-        float R_ik_phi = R_result.first;
-        float R_ik_theta = R_result.second;
+        auto [R_theta_pos, R_theta_neg, R_phi_pos, R_phi_neg] = avm_.ankle_ik(R_alpha, -R_beta);
+        float R_ik_phi = R_phi_neg;
+        float R_ik_theta = R_theta_neg;
         R_ankle_pitch_joint_->resetTargetPos(-R_ik_theta); // A
         R_ankle_roll_joint_->resetTargetPos(R_ik_phi);     // B
         // control_data的pos存放的是虚拟关节ankle_pitch和ankle_roll的数据
@@ -412,24 +427,59 @@ void MotorManager::publishTargetPos(const Eigen::VectorXf &actions, bool zero_kp
 
 std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero_kp, bool zero_kd, FSM_state state)
 {
-    publishTargetPos(actions, zero_kp, zero_kd);
-    // #if defined(USE_TENSORRT)
+#if defined(USE_TENSORRT)
+    if (state == FSM_state::default_xsens_gmr)
+    {
+        Eigen::VectorXf mutable_actions = actions;  // 创建副本
+        RCLCPP_WARN(node_->get_logger(), "开始default_xsens_gmr");
+        if (XSENS_joint_state_->position.size() > 0)
+        {
+            // for (size_t i = 0; i < XSENS_joint_state_->position.size(); ++i)
+            // {
+            //     std::cout << XSENS_joint_state_->position[i] << " ";
+            // }
+            // std::cout << std::endl;
+            for (size_t i = 0; i < XSENS_joint_state_->name.size(); ++i)
+            {
+                // auto motor = getMotorByName_in_id(XSENS_joint_state_->name[i]);
+                // if (motor)
+                // {
+                //     size_t idx = name_to_index_in_id_[XSENS_joint_state_->name[i]];
+                //     control_data[idx].pos = XSENS_joint_state_->position[i] * motors_in_id_[idx]->getDirection();
+                // }
+                mutable_actions(i) = XSENS_joint_state_->position[i];
+            }
+            // mutable_actions(12) = 0; // torso
 
-    // ==================== 挥手动作状态机（仅右臂7个关节） ====================
-    // 右臂关节名称（必须与YAML配置一致）
-    const std::vector<std::string> right_arm_joints = {
-        "R_shoulder_pitch_joint", "R_shoulder_roll_joint", "R_shoulder_yaw_joint", "R_elbow_joint",
-        "R_forearm_yaw_joint",    "R_wrist_roll_joint",    "R_wrist_pitch_joint"};
+            // mutable_actions(13) = 0; 
+            // mutable_actions(14) = 0; 
+            // mutable_actions(15) = 0; 
+            // mutable_actions(16) = 0; 
+            // mutable_actions(17) = 0; 
+            // mutable_actions(18) = 0; 
+            // mutable_actions(19) = 0; 
 
-    // 目标位置（挥手初始姿态，单位：弧度）
-    const std::vector<float> target_positions = {-1.48f, 0.0f, 0.0f, -0.78f, 1.42f, -0.892f, 0.0f};
-
-    // 运动参数
-    constexpr float phase1_duration = 3.0f;  // 到达目标姿态
-    constexpr float phase2_duration = 10.0f; // 挥手摆动时间
-    constexpr float phase3_duration = 3.0f;  // 回到零位
-    constexpr float amplitude = 0.32f;       // 肩偏航关节摆动幅度（rad）
-    constexpr float frequency = 0.25f;       // 挥手频率 0.25Hz → 单次挥手约4秒
+            // mutable_actions(20) = 0; 
+            // mutable_actions(21) = 0; 
+            // mutable_actions(22) = 0; 
+            // mutable_actions(23) = 0; 
+            // mutable_actions(24) = 0; 
+            // mutable_actions(25) = 0; 
+            // mutable_actions(26) = 0; 
+            // head
+            mutable_actions(27) = 0; 
+            mutable_actions(28) = 0; 
+            publishTargetPos(mutable_actions, zero_kp, zero_kd);
+        }
+    }
+    else if (state == FSM_state::default_vr_rp)
+    {
+        RCLCPP_WARN_ONCE(node_->get_logger(), "default_vr_rp");
+    }
+    else
+    {
+        publishTargetPos(actions, zero_kp, zero_kd);
+    }
     for (size_t i = 0; i < motors_in_id_.size(); ++i)
     {
         control_data.at(i) = motors_in_id_[i]->getMotorInfo();
@@ -442,10 +492,30 @@ std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero
             control_data[i].kd = 0;
         }
     }
+    // #if defined(USE_TENSORRT)
+#endif
+
+    
+    
+#if defined(USE_TENSORRT)
     // 初始化启动时间
     if (state == FSM_state::default_state_wave)
     {
+        // ==================== 挥手动作状态机（仅右臂7个关节） ====================
+        // 右臂关节名称（必须与YAML配置一致）
+        const std::vector<std::string> right_arm_joints = {
+            "R_shoulder_pitch_joint", "R_shoulder_roll_joint", "R_shoulder_yaw_joint", "R_elbow_joint",
+            "R_forearm_yaw_joint",    "R_wrist_roll_joint",    "R_wrist_pitch_joint"};
 
+        // 目标位置（挥手初始姿态，单位：弧度）
+        const std::vector<float> target_positions = {-1.48f, 0.0f, 0.0f, -1.38f, 1.42f, -0.892f, 0.0f};
+
+        // 运动参数
+        constexpr float phase1_duration = 1.8f;  // 到达目标姿态
+        constexpr float phase2_duration = 4.0f; // 挥手摆动时间
+        constexpr float phase3_duration = 2.0f;  // 回到零位
+        constexpr float amplitude = 0.32f;       // 肩偏航关节摆动幅度（rad）
+        constexpr float frequency = 1.0f;       // 挥手频率 0.25Hz → 单次挥手约4秒 0.40hz ---2.5秒
         if (!wave_initialized)
         {
             wave_start_time = std::chrono::high_resolution_clock::now();
@@ -563,8 +633,164 @@ std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero
             wave_phase = 0; // 0:未开始, 1:阶段1, 2:阶段2, 3:阶段3, 4:完成
         }
     }
+    else if (state == FSM_state::default_state_greeting)
+    {
+        // ==================== 拱手礼拜年动作（双臂 + 右手握拳） ====================
+        static bool greeting_initialized = false;
+        static std::chrono::high_resolution_clock::time_point greeting_start_time;
+        static int greeting_phase = 0;  // 0:未开始, 1:阶段1, 2:阶段2, 3:阶段3, 4:完成
 
-#if defined(USE_TENSORRT)
+        // 受控关节（左臂7 + 右臂7 + 右手手指11，共25个）
+        const std::vector<std::string> greeting_joints = {
+            // 左臂
+            "L_shoulder_pitch_joint", "L_shoulder_roll_joint", "L_shoulder_yaw_joint",
+            "L_elbow_joint", "L_forearm_yaw_joint", "L_wrist_roll_joint", "L_wrist_pitch_joint",
+            // 右臂
+            "R_shoulder_pitch_joint", "R_shoulder_roll_joint", "R_shoulder_yaw_joint",
+            "R_elbow_joint", "R_forearm_yaw_joint", "R_wrist_roll_joint", "R_wrist_pitch_joint",
+        };
+
+        // 拱手礼目标姿态（单位：弧度）
+        const std::vector<float> target_positions = {
+            // 左臂
+            -1.2f,  0.08f, -0.45f, -1.6f,  0.8f, 0.0f, 0.0f,
+            // 右臂
+            -1.2f, -0.08f,  0.45f, -1.6f, -0.8f, 0.0f, 0.0f
+        };
+
+        // 运动参数（与Python脚本完全一致）
+        constexpr float phase1_duration = 2.5f;   // 抬手到拱手姿态 + 握拳
+        constexpr float phase2_duration = 10.0f;   // 拜年维持时间
+        constexpr float phase3_duration = 2.5f;   // 回零
+        constexpr float bow_amplitude   = 0.3f;   // 上下摆动幅度（rad）
+        constexpr float bow_frequency   = 1.0f;   // 摆动频率（1Hz）
+
+        // 初始化
+        if (!greeting_initialized)
+        {
+            greeting_start_time = std::chrono::high_resolution_clock::now();
+            greeting_initialized = true;
+            greeting_phase = 1;
+            RCLCPP_INFO(node_->get_logger(), "拱手礼拜年动作开始");
+        }
+
+        auto now = std::chrono::high_resolution_clock::now();
+        float elapsed_total = std::chrono::duration<float>(now - greeting_start_time).count();
+
+        float t = 0.0f;
+        float s = 0.0f;  // 五次多项式系数
+
+        // 阶段1：从零位 → 拱手姿态 + 握拳（五次多项式）
+        if (greeting_phase == 1)
+        {   
+            auto msg = std_msgs::msg::Int32();
+            msg.data = 1;
+            left_hand_control->publish(msg);
+            t = elapsed_total / phase1_duration;
+            if (t >= 1.0f)
+            {
+                t = 1.0f;
+                greeting_phase = 2;
+                greeting_start_time = now;
+                RCLCPP_INFO(node_->get_logger(), "[拜年 %.2fs] 阶段1完成，进入上下摆动阶段", elapsed_total);
+            }
+            s = 6.0f * t*t*t*t*t - 15.0f * t*t*t*t + 10.0f * t*t*t;
+
+            for (size_t i = 0; i < greeting_joints.size(); ++i)
+            {
+                auto motor = getMotorByName_in_id(greeting_joints[i]);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[greeting_joints[i]];
+                    control_data[idx].pos = (0.0f + target_positions[i] * s) * motors_in_id_[idx]->getDirection();
+                }
+            }
+        }
+
+        // 阶段2：上下拜年摆动（仅左右肩pitch关节摆动，其他保持）
+        else if (greeting_phase == 2)
+        {
+            float phase2_elapsed = std::chrono::duration<float>(now - greeting_start_time).count();
+            t = phase2_elapsed / phase2_duration;
+
+            // float bow_offset = bow_amplitude * std::sin(2.0f * M_PI * bow_frequency * phase2_elapsed);
+
+            for (size_t i = 0; i < greeting_joints.size(); ++i)
+            {
+                auto motor = getMotorByName_in_id(greeting_joints[i]);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[greeting_joints[i]];
+                    // if (i == 3 || i == 10)  // L_shoulder_pitch (0) 和 R_shoulder_pitch (7)
+                    // {
+                    //     control_data[idx].pos = (target_positions[i] + bow_offset) * motors_in_id_[idx]->getDirection();
+                    // }
+                    // else
+                    {
+                        control_data[idx].pos = target_positions[i] * motors_in_id_[idx]->getDirection();
+                    }
+                }
+            }
+
+            if (t >= 1.0f)
+            {
+                greeting_phase = 3;
+                greeting_start_time = now;
+                RCLCPP_INFO(node_->get_logger(), "[拜年 %.2fs] 阶段2完成，准备回零", elapsed_total);
+            }
+        }
+
+        // 阶段3：从拱手姿态 → 零位（五次多项式）
+        else if (greeting_phase == 3)
+        {
+            t = std::chrono::duration<float>(now - greeting_start_time).count() / phase3_duration;
+            if (t >= 1.0f)
+            {
+                t = 1.0f;
+                greeting_phase = 4;
+                RCLCPP_INFO(node_->get_logger(), "[拜年 %.2fs] 阶段3完成，拜年动作结束", elapsed_total);
+            }
+            s = 6.0f * t*t*t*t*t - 15.0f * t*t*t*t + 10.0f * t*t*t;
+
+            for (size_t i = 0; i < greeting_joints.size(); ++i)
+            {
+                auto motor = getMotorByName_in_id(greeting_joints[i]);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[greeting_joints[i]];
+                    control_data[idx].pos = (target_positions[i] + (0.0f - target_positions[i]) * s) *
+                                            motors_in_id_[idx]->getDirection();
+                }
+            }
+        }
+
+        // 阶段4：保持零位并结束
+        else if (greeting_phase == 4)
+        {
+            for (const auto& joint_name : greeting_joints)
+            {
+                auto motor = getMotorByName_in_id(joint_name);
+                if (motor)
+                {
+                    size_t idx = name_to_index_in_id_[joint_name];
+                    control_data[idx].pos = 0.0f;
+                }
+            }
+            
+            // 发布状态回到默认
+            std_msgs::msg::Int32 state_msg;
+            state_msg.data = static_cast<int>(FSM_state::default_state);
+            set_robot_state_publisher_->publish(std::move(state_msg));
+
+            // 重置状态机
+            greeting_initialized = false;
+            greeting_phase = 0;
+            auto msg = std_msgs::msg::Int32();
+            msg.data = 0;
+            left_hand_control->publish(msg);
+        }
+    }
+    
     auto serialized_data = MotorSerializer::serialize_array(control_data.data(), control_data.size());
     // RCLCPP_WARN(node_->get_logger(), "jointCommand.");
     return std::string(serialized_data.begin(), serialized_data.end());
@@ -573,7 +799,20 @@ std::string MotorManager::jointCommand(const Eigen::VectorXf &actions, bool zero
     return std::string("A");
 #endif
 }
-
+void MotorManager::XsensjointCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
+{
+    if (msg->position.size() != motors_.size())
+    {
+        RCLCPP_WARN(node_->get_logger(), "JointState size mismatch.");
+        return;
+    }
+    RCLCPP_WARN_ONCE(node_->get_logger(), "default_vr_rp");
+    XSENS_joint_state_ = msg;
+    // for (size_t i = 0; i < msg->position.size(); ++i) {
+    //     std::cout<<XSENS_joint_state_->position[i]<<" ";
+    // }
+    // std::cout<<std::endl;
+}
 /**
  * @brief JointState回调函数实现。
  */

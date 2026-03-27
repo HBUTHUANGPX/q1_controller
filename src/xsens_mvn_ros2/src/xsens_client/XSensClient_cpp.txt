@@ -1,0 +1,876 @@
+#include "xsens_mvn_ros2/XSensClient.h"
+#include <Eigen/Geometry>
+#include <xsens_mvn_sdk/jointanglesdatagram.h>
+
+XSensClient::XSensClient(const int& udp_port) :
+    udp_port_(udp_port),
+    client_active_(false),
+    has_finger_data_(false),
+    prop_count_(0),
+    m_hasStoredFingerQuats(false)
+{
+    // Initialize with empty vectors
+    m_leftFingerQuats.clear();
+    m_rightFingerQuats.clear();
+}
+
+bool XSensClient::init()
+{
+    // Initialize UDP communication
+    udp_socket_ = boost::make_shared<Socket>(IP_UDP);
+    if(!udp_socket_->bind(udp_port_))
+    {
+        std::cout << "Error binding XSens port.";
+        return false;
+    }
+    
+    data_acquisition_thread_ = boost::thread(&XSensClient::dataAcquisitionCallback, this);
+
+    // Wait for XSens data acquisition activation
+    while (!client_active_)
+    {
+        boost::this_thread::sleep_for(boost::chrono::milliseconds(500));
+    }
+    std::cout << "XSens client initialized." << std::endl;
+
+    return true;
+}
+
+void XSensClient::dataAcquisitionCallback()
+{
+    std::cout << "XSens client start reading." << std::endl << std::endl;
+    
+    if (!buildXSensModel())
+    {
+        std::cerr << "Failure building human model." << std::endl;
+        client_active_ = false;
+    }
+    else
+    {
+        std::cout << "Human model built." << std::endl;
+        client_active_ = true;
+    }
+
+    while (client_active_)
+    {
+        if (readData())
+        {
+            updateJointAngles();
+            updateLinkPoses();
+            updateLinkLinearTwists();
+            updateLinkAngularTwists();
+            updateCOM();
+            
+            // Update finger data if available
+            if (has_finger_data_)
+            {
+                updateFingerJointAngles();
+            }
+        }
+    }
+}
+
+bool XSensClient::readData()
+{
+    // Read data from UDP socket
+    int readed_bytes = udp_socket_->read(data_buffer_, MAX_MVN_DATAGRAM_SIZE);
+    if (readed_bytes > 0)
+    {
+        parser_manager_.readDatagram(data_buffer_);
+        return true;
+    }
+    std::cerr << "Error reading data" << std::endl;
+    client_active_ = false;
+    return false;
+}
+
+bool XSensClient::buildXSensModel()
+{
+    // Initialize human data handler
+    human_data_ = std::make_shared<hrii::ergonomics::HumanDataHandler>();
+    link_name_list_.clear();
+    joint_name_list_.clear();
+    finger_link_name_list_.clear();
+    finger_joint_name_list_.clear();
+
+    XSensModelNames xsens_model_names;
+
+    auto quaternion_datagram = waitForQuaternionDatagram();
+    auto joint_angles_datagram = waitForJointAnglesDatagram();
+
+    // Detect props
+    prop_count_ = detectPropCount(quaternion_datagram);
+    std::cout << "Detected " << prop_count_ << " props" << std::endl;
+
+    // Check for finger data
+    has_finger_data_ = detectFingerData(quaternion_datagram);
+    std::cout << "Finger data available: " << (has_finger_data_ ? "Yes" : "No") << std::endl;
+
+    // Get links
+    std::cout << "Available links: " << quaternion_datagram.getData().size() << std::endl;
+    for (auto xsens_link: quaternion_datagram.getData())
+    {
+        std::string link_name = xsens_model_names.getSegmentNameFromId(xsens_link.segmentId, prop_count_);
+        
+        // Check if this is a finger link
+        int finger_id = xsens_model_names.getFingerSegmentId(link_name, prop_count_);
+        if (finger_id != -1 && has_finger_data_)
+        {
+            // This is a finger segment
+            if(!human_data_->setLink(link_name, hrii::ergonomics::Link(link_name)))
+            {
+                std::cerr << "Error inserting finger link " << link_name << ". Exiting...";
+                return false;
+            }
+            else
+            {
+                finger_link_name_list_.push_back(link_name);
+                std::cout << "Added finger link: " << link_name << " (ID: " << finger_id << ")" << std::endl;
+            }
+        }
+        else if (xsens_link.segmentId < xsens_model_names.links.size())
+        {
+            // This is a regular body segment
+            if(!human_data_->setLink(xsens_model_names.links[xsens_link.segmentId], hrii::ergonomics::Link(xsens_model_names.links[xsens_link.segmentId])))
+            {
+                std::cerr << "Error inserting link " << xsens_model_names.links[xsens_link.segmentId] << ". Exiting...";
+                return false;
+            }
+            else
+            {
+                link_name_list_.push_back(xsens_model_names.links[xsens_link.segmentId]);
+            }
+        }
+        else if (24 <= xsens_link.segmentId && xsens_link.segmentId < 24 + prop_count_)
+        {
+            // This is a prop
+            int prop_index = xsens_link.segmentId - 24;
+            std::string prop_name = "prop" + std::to_string(prop_index + 1);
+            
+            if(!human_data_->setLink(prop_name, hrii::ergonomics::Link(prop_name)))
+            {
+                std::cerr << "Error inserting prop link " << prop_name << ". Exiting...";
+                return false;
+            }
+            else
+            {
+                link_name_list_.push_back(prop_name);
+                std::cout << "Added prop: " << prop_name << " (ID: " << xsens_link.segmentId << ")" << std::endl;
+            }
+        }
+        else
+        {
+            std::cerr << "Segment ID " << xsens_link.segmentId << " is out of bounds. Max index is " << (xsens_model_names.links.size()-1) << std::endl;
+            continue;  // Skip this link
+        }
+    }
+    
+    if (human_data_->getLinks().size() == 0)
+    {
+        std::cerr << "No link elements found." << std::endl;
+        return false;
+    }
+
+    // Process regular joints
+    std::cout << "Available joints: " << joint_angles_datagram.getData().size() << std::endl;
+    for (size_t joint_cnt = 0; joint_cnt < joint_angles_datagram.getData().size(); joint_cnt++)
+    {
+        auto xsens_joint = joint_angles_datagram.getData()[joint_cnt];
+        
+        if (joint_cnt < xsens_model_names.joints.size())
+        {
+            std::cout << joint_cnt << ") " << link_name_list_[xsens_joint.parentSegmentId-1] << "(" << xsens_joint.parentSegmentId-1 << ") -> " << 
+                                          link_name_list_[xsens_joint.childSegmentId-1] << "(" << xsens_joint.childSegmentId-1 << ")" << std::endl; 
+            std::cout << xsens_model_names.joints[joint_cnt] << std::endl;
+            
+            if(!human_data_->setJoint(xsens_model_names.joints[joint_cnt], hrii::ergonomics::Joint(xsens_model_names.joints[joint_cnt])))
+            {
+                std::cerr << "Error inserting joint " << xsens_model_names.joints[joint_cnt] << ". Exiting...";
+                return false;
+            }
+            else
+            {
+                joint_name_list_.push_back(xsens_model_names.joints[joint_cnt]);
+            }
+        }
+    }
+    
+    // Process finger joints if available
+    if (has_finger_data_)
+    {
+        setupFingerJoints(xsens_model_names);
+    }
+    
+    if (human_data_->getJoints().size() == 0)
+    {
+        std::cerr << "No joint elements found." << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+int XSensClient::detectPropCount(QuaternionDatagram& quaternion_datagram)
+{
+    // Count how many prop segments are present in the data
+    int max_segment_id = 0;
+    for (auto xsens_link: quaternion_datagram.getData())
+    {
+        if (xsens_link.segmentId > max_segment_id)
+        {
+            max_segment_id = xsens_link.segmentId;
+        }
+    }
+    
+    // If max_segment_id is greater than 23 (regular body segments), then we have props
+    if (max_segment_id > 23)
+    {
+        return std::min(max_segment_id - 23, 4);  // Maximum 4 props
+    }
+    
+    return 0;
+}
+
+bool XSensClient::detectFingerData(QuaternionDatagram& quaternion_datagram)
+{
+    // Check if there are any finger segments in the data
+    XSensModelNames xsens_model_names;
+    
+    for (auto xsens_link: quaternion_datagram.getData())
+    {
+        std::string link_name = xsens_model_names.getSegmentNameFromId(xsens_link.segmentId, prop_count_);
+        
+        // Check if this is a finger segment name
+        bool is_left_finger = std::find(xsens_model_names.left_finger_links.begin(),
+                               xsens_model_names.left_finger_links.end(),
+                               link_name) != xsens_model_names.left_finger_links.end();
+                               
+        bool is_right_finger = std::find(xsens_model_names.right_finger_links.begin(),
+                                xsens_model_names.right_finger_links.end(),
+                                link_name) != xsens_model_names.right_finger_links.end();
+                                
+        if (is_left_finger || is_right_finger)
+        {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+void XSensClient::setupFingerJoints(const XSensModelNames& xsens_model_names)
+{
+    // Set up the finger joints based on the hierarchy
+    auto finger_hierarchy = xsens_model_names.getFingerHierarchy(prop_count_);
+    
+    // Add left hand finger joints
+    for (size_t i = 0; i < xsens_model_names.left_finger_joints.size(); i++)
+    {
+        std::string joint_name = xsens_model_names.left_finger_joints[i];
+        if (!human_data_->setJoint(joint_name, hrii::ergonomics::Joint(joint_name)))
+        {
+            std::cerr << "Error inserting finger joint " << joint_name << std::endl;
+        }
+        else
+        {
+            finger_joint_name_list_.push_back(joint_name);
+            std::cout << "Added finger joint: " << joint_name << std::endl;
+        }
+    }
+    
+    // Add right hand finger joints
+    for (size_t i = 0; i < xsens_model_names.right_finger_joints.size(); i++)
+    {
+        std::string joint_name = xsens_model_names.right_finger_joints[i];
+        if (!human_data_->setJoint(joint_name, hrii::ergonomics::Joint(joint_name)))
+        {
+            std::cerr << "Error inserting finger joint " << joint_name << std::endl;
+        }
+        else
+        {
+            finger_joint_name_list_.push_back(joint_name);
+            std::cout << "Added finger joint: " << joint_name << std::endl;
+        }
+    }
+}
+
+QuaternionDatagram XSensClient::waitForQuaternionDatagram()
+{
+    std::cout << "Waiting for quaternion datagram received..." << std::endl;
+    QuaternionDatagram quaternion_datagram;
+    while (parser_manager_.getQuaternionDatagram() == NULL)
+    {
+        if(!readData()) return QuaternionDatagram();
+        if (parser_manager_.getQuaternionDatagram() != NULL)
+        {
+            std::cout << "Quaternion datagram received." << std::endl;
+            quaternion_datagram = *(parser_manager_.getQuaternionDatagram());
+        }
+    }
+    return quaternion_datagram;
+}
+
+JointAnglesDatagram XSensClient::waitForJointAnglesDatagram()
+{
+    std::cout << "Waiting for joint angles..." << std::endl;
+    JointAnglesDatagram joint_angles_datagram;
+    while (parser_manager_.getJointAnglesDatagram() == NULL)
+    {
+        if(!readData()) return JointAnglesDatagram();
+        if (parser_manager_.getJointAnglesDatagram() != NULL)
+        {
+            std::cout << "Joint angles datagram received." << std::endl;
+            joint_angles_datagram = *(parser_manager_.getJointAnglesDatagram());
+        }
+    }
+    return joint_angles_datagram;
+}
+    
+void XSensClient::updateJointAngles()
+{
+    auto joint_angles = parser_manager_.getJointAnglesDatagram();
+    if(joint_angles != NULL)
+    {
+        // Update joint angles according to N-pose
+        human_data_->setJointAngles("l5_s1",             jointAngleToEigenVector3d(joint_angles->getItem(1, 2), 1, 1, 1));
+        human_data_->setJointAngles("l4_l3",             jointAngleToEigenVector3d(joint_angles->getItem(2, 3), 1, 1, 1));
+        human_data_->setJointAngles("l1_t12",            jointAngleToEigenVector3d(joint_angles->getItem(3, 4), 1, 1, 1));
+        human_data_->setJointAngles("t9_t8",             jointAngleToEigenVector3d(joint_angles->getItem(4, 5), 1, 1, 1));
+        human_data_->setJointAngles("t1_c7",             jointAngleToEigenVector3d(joint_angles->getItem(5, 6), 1, 1, 1));
+        human_data_->setJointAngles("c1_head",           jointAngleToEigenVector3d(joint_angles->getItem(6, 7), 1, 1, 1));
+        human_data_->setJointAngles("right_c7_shoulder", jointAngleToEigenVector3d(joint_angles->getItem(5, 8), -1, 1, -1));
+        human_data_->setJointAngles("right_shoulder",    jointAngleToEigenVector3d(joint_angles->getItem(8, 9), -1, 1, 1));
+        human_data_->setJointAngles("right_elbow",       jointAngleToEigenVector3d(joint_angles->getItem(9, 10), -1, 1, -1));
+        human_data_->setJointAngles("right_wrist",       jointAngleToEigenVector3d(joint_angles->getItem(10, 11), -1, 1, -1));
+        human_data_->setJointAngles("left_c7_shoulder",  jointAngleToEigenVector3d(joint_angles->getItem(5, 12), 1, -1, -1));
+        human_data_->setJointAngles("left_shoulder",     jointAngleToEigenVector3d(joint_angles->getItem(12, 13), 1, -1, -1));
+        human_data_->setJointAngles("left_elbow",        jointAngleToEigenVector3d(joint_angles->getItem(13, 14), 1, -1, -1));
+        human_data_->setJointAngles("left_wrist",        jointAngleToEigenVector3d(joint_angles->getItem(14, 15), 1, -1, -1));
+        human_data_->setJointAngles("right_hip",         jointAngleToEigenVector3d(joint_angles->getItem(1, 16), -1, -1, 1));
+        human_data_->setJointAngles("right_knee",        jointAngleToEigenVector3d(joint_angles->getItem(16, 17), -1, 1, -1));
+        human_data_->setJointAngles("right_ankle",       jointAngleToEigenVector3d(joint_angles->getItem(17, 18), -1, 1, -1));
+        human_data_->setJointAngles("right_ballfoot",    jointAngleToEigenVector3d(joint_angles->getItem(18, 19), -1, 1, -1));
+        human_data_->setJointAngles("left_hip",          jointAngleToEigenVector3d(joint_angles->getItem(1, 20), 1, 1, -1));
+        human_data_->setJointAngles("left_knee",         jointAngleToEigenVector3d(joint_angles->getItem(20, 21), 1, -1, 1));
+        human_data_->setJointAngles("left_ankle",        jointAngleToEigenVector3d(joint_angles->getItem(21, 22), 1, -1, -1));
+        human_data_->setJointAngles("left_ballfoot",     jointAngleToEigenVector3d(joint_angles->getItem(22, 23), 1, -1, -1));
+
+        // Add +90° to elbows angle
+        hrii::ergonomics::Joint elbow_joint;
+        human_data_->getJoint("right_elbow", elbow_joint);
+        elbow_joint.state.angles[2] -= 90.0;
+        human_data_->setJoint("right_elbow", elbow_joint);
+        human_data_->getJoint("left_elbow", elbow_joint);
+        elbow_joint.state.angles[2] += 90.0;
+        human_data_->setJoint("left_elbow", elbow_joint);
+
+
+        hrii::ergonomics::Joint shoulder_joint;
+        human_data_->getJoint("right_shoulder", shoulder_joint);
+        shoulder_joint.state.angles[0] += 90.0;
+        human_data_->setJoint("right_shoulder", shoulder_joint);
+        human_data_->getJoint("left_shoulder", shoulder_joint);
+        shoulder_joint.state.angles[0] -= 90.0;
+        human_data_->setJoint("left_shoulder", shoulder_joint);
+    }
+}
+
+void XSensClient::updateFingerJointAngles()
+{
+    if (!has_finger_data_ || !m_hasStoredFingerQuats)
+    {
+        std::cerr << "No finger data available or no stored quaternions" << std::endl;
+        return;
+    }
+    
+    // Debug output
+    std::cout << "Using stored finger quats: " << m_leftFingerQuats.size() << " left, " 
+              << m_rightFingerQuats.size() << " right" << std::endl;
+    
+    // If no finger data found, exit
+    if (m_leftFingerQuats.empty() && m_rightFingerQuats.empty())
+    {
+        std::cerr << "Stored quaternions are empty" << std::endl;
+        return;
+    }
+    
+    // Get JointAnglesDatagram
+    auto joint_angles_datagram = parser_manager_.getJointAnglesDatagram();
+    if (joint_angles_datagram == NULL)
+    {
+        std::cerr << "Joint angles datagram is NULL" << std::endl;
+        return;
+    }
+    
+    // Calculate finger joint angles using the stored quaternions
+    joint_angles_datagram->calculateFingerJointAngles(m_leftFingerQuats, m_rightFingerQuats);
+    
+    // Check if we got any finger joint angles
+    if (!joint_angles_datagram->hasFingerData())
+    {
+        std::cerr << "No finger joint angles were calculated" << std::endl;
+        return;
+    }
+    
+    // Get the finger joint angles
+    auto finger_joint_angles = joint_angles_datagram->getFingerJointAngles();
+    std::cout << "Calculated " << finger_joint_angles.size() << " finger joint angles" << std::endl;
+    
+    // Update the human data model with finger joint angles
+    for (const auto& finger_joint : finger_joint_angles)
+    {
+        // Convert from FingerJointAngle to Eigen::Vector3d
+        Eigen::Vector3d angles;
+        angles[0] = finger_joint.rotation[0]; // abduction/adduction
+        angles[1] = finger_joint.rotation[1]; // internal/external rotation
+        angles[2] = finger_joint.rotation[2]; // flexion/extension
+        
+        // Set the joint angles in human data model
+        if (!human_data_->setJointAngles(finger_joint.jointName, angles))
+        {
+            // If joint not found, try to find it by parent-child segment IDs
+            std::string parent_name = "";
+            std::string child_name = "";
+            
+            XSensModelNames xsens_model_names;
+            parent_name = xsens_model_names.getSegmentNameFromId(finger_joint.parentSegmentId, prop_count_);
+            child_name = xsens_model_names.getSegmentNameFromId(finger_joint.childSegmentId, prop_count_);
+            
+            // Construct alternative joint name
+            std::string alt_joint_name = parent_name + "_" + child_name;
+            
+            if (!human_data_->setJointAngles(alt_joint_name, angles))
+            {
+                // If still not found, try the inverse order
+                alt_joint_name = child_name + "_" + parent_name;
+                if (!human_data_->setJointAngles(alt_joint_name, angles))
+                {
+                    std::cerr << "Could not find joint for finger segments " << parent_name 
+                              << " and " << child_name << std::endl;
+                }
+            }
+        }
+    }
+}
+
+
+void XSensClient::updateLinkPoses()
+{
+    auto quaternion_datagram = parser_manager_.getQuaternionDatagram();
+    if(quaternion_datagram != NULL)
+    {
+        XSensModelNames xsens_model_names;
+        
+        // Update regular body segment poses
+        for (int link_cnt = 0; link_cnt < link_name_list_.size(); link_cnt++)
+        {
+            auto link_pose = quaternion_datagram->getItem(link_cnt+1);
+            Eigen::Vector3d link_pos;
+            link_pos << link_pose.sensorPos[0], link_pose.sensorPos[1], link_pose.sensorPos[2];
+            Eigen::Quaterniond link_orient(link_pose.quatRotation[0], link_pose.quatRotation[1], link_pose.quatRotation[2], link_pose.quatRotation[3]);
+            human_data_->setLinkPose(link_name_list_[link_cnt], link_pos, link_orient);
+        }
+        
+        // Store finger quaternions if finger data is available
+        if (has_finger_data_)
+        {
+            // Calculate base indices for finger segments
+            int left_finger_base = 24 + prop_count_;
+            int right_finger_base = left_finger_base + 20;
+            
+            // Resize and initialize the finger quaternion vectors if needed
+            if (m_leftFingerQuats.size() != 20 || m_rightFingerQuats.size() != 20)
+            {
+                m_leftFingerQuats.resize(20, Eigen::Quaternionf::Identity());
+                m_rightFingerQuats.resize(20, Eigen::Quaternionf::Identity());
+            }
+            
+            // Extract and store finger quaternions
+            for (const auto& quat_kinematics : quaternion_datagram->getData())
+            {
+                int segmentId = quat_kinematics.segmentId;
+                
+                // Check if this is a left finger segment
+                if (segmentId >= left_finger_base && segmentId < left_finger_base + 20)
+                {
+                    int finger_index = segmentId - left_finger_base;
+                    if (finger_index >= 0 && finger_index < 20)
+                    {
+                        // Store quaternion
+                        m_leftFingerQuats[finger_index] = Eigen::Quaternionf(
+                            quat_kinematics.quatRotation[0],  // w
+                            quat_kinematics.quatRotation[1],  // x
+                            quat_kinematics.quatRotation[2],  // y
+                            quat_kinematics.quatRotation[3]   // z
+                        );
+                    }
+                }
+                // Check if this is a right finger segment
+                else if (segmentId >= right_finger_base && segmentId < right_finger_base + 20)
+                {
+                    int finger_index = segmentId - right_finger_base;
+                    if (finger_index >= 0 && finger_index < 20)
+                    {
+                        // Store quaternion
+                        m_rightFingerQuats[finger_index] = Eigen::Quaternionf(
+                            quat_kinematics.quatRotation[0],  // w
+                            quat_kinematics.quatRotation[1],  // x
+                            quat_kinematics.quatRotation[2],  // y
+                            quat_kinematics.quatRotation[3]   // z
+                        );
+                    }
+                }
+            }
+            
+            // Set flag indicating we have stored finger quaternions
+            m_hasStoredFingerQuats = true;
+            
+            std::cout << "Stored " << m_leftFingerQuats.size() << " left finger quats and "
+                        << m_rightFingerQuats.size() << " right finger quats" << std::endl;
+        }
+
+        // Update finger segment poses if available
+        if (has_finger_data_)
+        {
+            for (const auto& finger_link_name : finger_link_name_list_)
+            {
+                // Get segment ID for this finger link
+                int segment_id = xsens_model_names.getFingerSegmentId(finger_link_name, prop_count_);
+                if (segment_id != -1)
+                {
+                    try {
+                        auto link_pose = quaternion_datagram->getItem(segment_id);
+                        Eigen::Vector3d link_pos;
+                        link_pos << link_pose.sensorPos[0], link_pose.sensorPos[1], link_pose.sensorPos[2];
+                        Eigen::Quaterniond link_orient(link_pose.quatRotation[0], link_pose.quatRotation[1], 
+                                                      link_pose.quatRotation[2], link_pose.quatRotation[3]);
+                        human_data_->setLinkPose(finger_link_name, link_pos, link_orient);
+                    }
+                    catch (const std::exception& e) {
+                        std::cerr << "Error getting pose for finger segment " << finger_link_name 
+                                  << " (ID: " << segment_id << "): " << e.what() << std::endl;
+                    }
+                }
+            }
+        }
+        
+        Eigen::Quaterniond quat_z_rot_90pos(0.7071068, 0.0, 0.0, 0.7071068);
+        // rotateLink("t8", quat_z_rot_90pos);
+
+        Eigen::Quaterniond quat_x_rot_90neg(0.7071068, -0.7071068, 0.0, 0.0);
+        // rotateLink("right_shoulder", quat_x_rot_90neg);
+        // rotateLink("right_upper_arm", quat_x_rot_90neg);
+        // rotateLink("right_forearm", quat_x_rot_90neg);
+        // rotateLink("right_hand", quat_x_rot_90neg);
+
+        Eigen::Quaterniond quat_x_rot_90pos(0.7071068, 0.7071068, 0.0, 0.0);
+        // rotateLink("left_shoulder", quat_z_rot_90pos);
+        // rotateLink("left_upper_arm", quat_x_rot_90pos);
+        // rotateLink("left_forearm", quat_x_rot_90pos);
+        // rotateLink("left_hand", quat_x_rot_90pos);
+    }
+}
+
+void XSensClient::rotateLink(const std::string& link_name, const Eigen::Quaterniond& quat)
+{
+    hrii::ergonomics::Link link_to_rotate;
+    human_data_->getLink(link_name, link_to_rotate);
+    link_to_rotate.state.orientation = link_to_rotate.state.orientation * quat;
+    human_data_->setLink(link_name, link_to_rotate);
+}
+
+
+void XSensClient::rotateJoint(const std::string& joint_name, const Eigen::Quaterniond& quat)
+{
+    hrii::ergonomics::Joint joint_to_rotate;
+    if (human_data_->getJoint(joint_name, joint_to_rotate))
+    {
+        // Convert the joint angle vector to a rotation vector
+        Eigen::Vector3d angle_vec = joint_to_rotate.state.angles;
+        
+        // Convert angle vector to a rotation quaternion
+        Eigen::Quaterniond joint_quat = Eigen::AngleAxisd(angle_vec[0], Eigen::Vector3d::UnitX()) *
+                                        Eigen::AngleAxisd(angle_vec[1], Eigen::Vector3d::UnitY()) *
+                                        Eigen::AngleAxisd(angle_vec[2], Eigen::Vector3d::UnitZ());
+        
+        // Apply the rotation
+        Eigen::Quaterniond rotated_quat = quat * joint_quat;
+        
+        // Convert back to Euler angles
+        Eigen::Vector3d rotated_angles = rotated_quat.toRotationMatrix().eulerAngles(0, 1, 2);
+        
+        // Update the joint angles
+        joint_to_rotate.state.angles = rotated_angles;
+        
+        // Set the updated joint back
+        human_data_->setJoint(joint_name, joint_to_rotate);
+    }
+    else
+    {
+        std::cerr << "Joint " << joint_name << " not found" << std::endl;
+    }
+}
+
+void XSensClient::updateLinkLinearTwists()
+{
+    auto linear_segment_kinematics_datagram = parser_manager_.getLinearSegmentKinematicsDatagram();
+
+    if (linear_segment_kinematics_datagram != NULL)
+    {
+        XSensModelNames xsens_model_names;
+        
+        // Update regular body segments
+        for (int link_cnt = 0; link_cnt < link_name_list_.size(); link_cnt++)
+        {
+            // Get linear kinematics from datagram structure
+            auto link_linear_kinematics = linear_segment_kinematics_datagram->getItem(link_cnt+1);
+
+            // Get link
+            hrii::ergonomics::Link link;
+            if (!human_data_->getLink(link_name_list_[link_cnt], link))
+            {
+                std::cerr << "Link " << link_name_list_[link_cnt] << " not found" << std::endl;
+            }
+            else
+            {
+                link.state.velocity.linear << link_linear_kinematics.velocity[0], 
+                                              link_linear_kinematics.velocity[1], 
+                                              link_linear_kinematics.velocity[2];
+                link.state.acceleration.linear <<   link_linear_kinematics.acceleration[0], 
+                                                    link_linear_kinematics.acceleration[1], 
+                                                    link_linear_kinematics.acceleration[2];
+        
+                human_data_->setLinkState(link_name_list_[link_cnt], link.state);
+            }
+        }
+        
+        // Update finger segments if available
+        if (has_finger_data_)
+        {
+            for (const auto& finger_link_name : finger_link_name_list_)
+            {
+                // Get segment ID for this finger link
+                int segment_id = xsens_model_names.getFingerSegmentId(finger_link_name, prop_count_);
+                if (segment_id != -1)
+                {
+                    try {
+                        auto link_linear_kinematics = linear_segment_kinematics_datagram->getItem(segment_id);
+                        
+                        // Get link
+                        hrii::ergonomics::Link link;
+                        if (!human_data_->getLink(finger_link_name, link))
+                        {
+                            std::cerr << "Finger link " << finger_link_name << " not found" << std::endl;
+                        }
+                        else
+                        {
+                            link.state.velocity.linear << link_linear_kinematics.velocity[0], 
+                                                        link_linear_kinematics.velocity[1], 
+                                                        link_linear_kinematics.velocity[2];
+                            link.state.acceleration.linear << link_linear_kinematics.acceleration[0], 
+                                                            link_linear_kinematics.acceleration[1], 
+                                                            link_linear_kinematics.acceleration[2];
+                    
+                            human_data_->setLinkState(finger_link_name, link.state);
+                        }
+                    }
+                    catch (const std::exception& e) {
+                        // Skip this segment if there's an error
+                        std::cerr << "Error getting linear kinematics for finger segment " << finger_link_name 
+                                  << " (ID: " << segment_id << "): " << e.what() << std::endl;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void XSensClient::updateLinkAngularTwists()
+{
+    auto angular_segment_kinematics_datagram = parser_manager_.getAngularSegmentKinematicsDatagram();
+
+    if (angular_segment_kinematics_datagram != NULL)
+    {
+        XSensModelNames xsens_model_names;
+        
+        // Update regular body segments
+        for (int link_cnt = 0; link_cnt < link_name_list_.size(); link_cnt++)
+        {
+            // Get angular kinematics from datagram structure
+            auto link_angular_kinematics = angular_segment_kinematics_datagram->getItem(link_cnt+1);
+
+            // Get link
+            hrii::ergonomics::Link link;
+            if (!human_data_->getLink(link_name_list_[link_cnt], link))
+            {
+                std::cerr << "Link " << link_name_list_[link_cnt] << " not found" << std::endl;
+            }
+            else
+            {
+                link.state.velocity.angular <<  link_angular_kinematics.angularVeloc[0]*M_PI/180, 
+                                                link_angular_kinematics.angularVeloc[1]*M_PI/180, 
+                                                link_angular_kinematics.angularVeloc[2]*M_PI/180;
+                link.state.acceleration.angular <<  link_angular_kinematics.angularAccel[0]*M_PI/180, 
+                                                    link_angular_kinematics.angularAccel[1]*M_PI/180, 
+                                                    link_angular_kinematics.angularAccel[2]*M_PI/180;
+
+                human_data_->setLinkState(link_name_list_[link_cnt], link.state);
+            }
+        }
+        
+        // Update finger segments if available
+        if (has_finger_data_)
+        {
+            for (const auto& finger_link_name : finger_link_name_list_)
+            {
+                // Get segment ID for this finger link
+                int segment_id = xsens_model_names.getFingerSegmentId(finger_link_name, prop_count_);
+                if (segment_id != -1)
+                {
+                    try {
+                        auto link_angular_kinematics = angular_segment_kinematics_datagram->getItem(segment_id);
+                        
+                        // Get link
+                        hrii::ergonomics::Link link;
+                        if (!human_data_->getLink(finger_link_name, link))
+                        {
+                            std::cerr << "Finger link " << finger_link_name << " not found" << std::endl;
+                        }
+                        else
+                        {
+                            link.state.velocity.angular <<  link_angular_kinematics.angularVeloc[0]*M_PI/180, 
+                                                            link_angular_kinematics.angularVeloc[1]*M_PI/180, 
+                                                            link_angular_kinematics.angularVeloc[2]*M_PI/180;
+                            link.state.acceleration.angular <<  link_angular_kinematics.angularAccel[0]*M_PI/180, 
+                                                                link_angular_kinematics.angularAccel[1]*M_PI/180, 
+                                                                link_angular_kinematics.angularAccel[2]*M_PI/180;
+
+                            human_data_->setLinkState(finger_link_name, link.state);
+                        }
+                    }
+                    catch (const std::exception& e) {
+                        // Skip this segment if there's an error
+                        std::cerr << "Error getting angular kinematics for finger segment " << finger_link_name 
+                                  << " (ID: " << segment_id << "): " << e.what() << std::endl;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void XSensClient::updateCOM()
+{
+    auto com_datagram = parser_manager_.getCenterOfMassDatagram();
+
+    if (com_datagram != NULL)
+    {
+        Eigen::Vector3d com;
+        com << com_datagram->getData()[0], com_datagram->getData()[1], com_datagram->getData()[2];
+        human_data_->setCOM(com);
+    }
+}
+
+Eigen::Vector3d XSensClient::jointAngleToEigenVector3d(const JointAngle& joint_angle, 
+                                                        const double& x_axis, 
+                                                        const double& y_axis, 
+                                                        const double& z_axis)
+{
+    // Convert JointAngle object to a Eigen Vector3d rotating axes to align in resting position N-Pose
+    Eigen::Vector3d joint_angle_eigen_vec;
+    joint_angle_eigen_vec[0] = x_axis * joint_angle.rotation[0]; //abduction(+)/adduction(-) rotation to roll
+    // TEMPORARY HORRIBLE SOLUTION
+    joint_angle_eigen_vec[1] = z_axis * joint_angle.rotation[2]; //flexion(+)/extionsion(-) rotation to pitch
+    joint_angle_eigen_vec[2] = y_axis * joint_angle.rotation[1]; //internal(+)/external(-) rotation to yaw
+    return joint_angle_eigen_vec;
+}
+
+hrii::ergonomics::HumanDataHandler::Ptr XSensClient::getHumanData()
+{
+    return human_data_;
+}
+
+XSensClient::~XSensClient()
+{
+    client_active_ = false;
+    data_acquisition_thread_.join();
+    std::cout << "~XSensClient()" << std::endl;
+}
+
+
+std::pair<std::vector<Eigen::Quaternionf>, std::vector<Eigen::Quaternionf>> XSensClient::extractFingerQuaternions()
+{
+    auto quaternion_datagram = parser_manager_.getQuaternionDatagram();
+    std::vector<Eigen::Quaternionf> leftFingerQuats;
+    std::vector<Eigen::Quaternionf> rightFingerQuats;
+    
+    if (quaternion_datagram == NULL || !has_finger_data_)
+    {
+        std::cerr << "No quaternion datagram or finger data flag not set" << std::endl;
+        return std::make_pair(leftFingerQuats, rightFingerQuats);
+    }
+    
+    XSensModelNames xsens_model_names;
+    
+    // Calculate the base indices for left and right finger segments
+    int left_finger_base = 24 + prop_count_;
+    int right_finger_base = left_finger_base + 20;
+
+    std::cout << "Left finger base index: " << left_finger_base << ", Right finger base index: " << right_finger_base << std::endl;
+    
+    // Resize the vectors to hold all finger segments (20 per hand)
+    // Initialize vectors with default quaternions
+    leftFingerQuats.resize(20, Eigen::Quaternionf::Identity());
+    rightFingerQuats.resize(20, Eigen::Quaternionf::Identity());
+    
+    // Debug: Print all segment IDs to see what's available
+    std::cout << "Available segment IDs: ";
+    for (const auto& quat_kinematics : quaternion_datagram->getData())
+    {
+        std::cout << quat_kinematics.segmentId << " ";
+    }
+    std::cout << std::endl;
+
+    // Extract quaternions for all segments
+    for (const auto& quat_kinematics : quaternion_datagram->getData())
+    {
+        int segmentId = quat_kinematics.segmentId;
+        
+        // Check if this is a left finger segment
+        if (segmentId >= left_finger_base && segmentId < left_finger_base + 20)
+        {
+            int finger_index = segmentId - left_finger_base;
+            std::cout << "Found left finger segment ID: " << segmentId << ", index: " << finger_index << std::endl;
+
+            if (finger_index >= 0 && finger_index < 20)
+            {
+                // Store quaternion (converting to Eigen format)
+                leftFingerQuats[finger_index] = Eigen::Quaternionf(
+                    quat_kinematics.quatRotation[0],  // w
+                    quat_kinematics.quatRotation[1],  // x
+                    quat_kinematics.quatRotation[2],  // y
+                    quat_kinematics.quatRotation[3]   // z
+                );
+            }
+        }
+        // Check if this is a right finger segment
+        else if (segmentId >= right_finger_base && segmentId < right_finger_base + 20)
+        {
+            int finger_index = segmentId - right_finger_base;
+            std::cout << "Found right finger segment ID: " << segmentId << ", index: " << finger_index << std::endl;
+
+            if (finger_index >= 0 && finger_index < 20)
+            {
+                // Store quaternion (converting to Eigen format)
+                rightFingerQuats[finger_index] = Eigen::Quaternionf(
+                    quat_kinematics.quatRotation[0],  // w
+                    quat_kinematics.quatRotation[1],  // x
+                    quat_kinematics.quatRotation[2],  // y
+                    quat_kinematics.quatRotation[3]   // z
+                );
+            }
+        }
+    }
+    
+    return std::make_pair(leftFingerQuats, rightFingerQuats);
+}

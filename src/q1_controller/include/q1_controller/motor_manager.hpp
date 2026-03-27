@@ -83,17 +83,18 @@ class MotorManager
     Eigen::VectorXf current_vel_;                                   // 当前速度（从订阅更新）
 
     rclcpp::Node::SharedPtr node_;                                                       // ROS节点指针
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;            // 关节状态订阅器
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_,xsens_gmr_joint_sub;            // 关节状态订阅器
     rclcpp::Publisher<q1_controller::msg::MultiMotorCommand>::SharedPtr multi_motor_command_pub_;                // 目标位置发布器
     rclcpp::Publisher<q1_controller::msg::MultiMotorState>::SharedPtr multi_motor_state_pub_;                // 目标位置发布器
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_recv_pub_,state_ctrl_pub_;          // 目标位置发布器
-
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr left_hand_control;
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr set_robot_state_publisher_;
     std::shared_ptr<DataStore> data_store_;
     actual_virtual_map avm_;
     std::map<std::string, size_t> joint_indices_in_motors;
     std::vector<std::string> joint_index_in_need;
+    sensor_msgs::msg::JointState::SharedPtr XSENS_joint_state_;
 
     bool wave_initialized;
     std::chrono::high_resolution_clock::time_point wave_start_time;
@@ -108,6 +109,7 @@ class MotorManager
      * @param msg JointState消息指针。
      */
     void jointCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void XsensjointCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
 };
 
 #endif // MOTOR_MANAGER_HPP

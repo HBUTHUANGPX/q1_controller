@@ -94,10 +94,13 @@ class LowlevelManager : public rclcpp::Node
             {
                 scaled_action = rl_control_->inference();
                 // scaled_action *=0;
-                // scaled_action[4] = 0.2*std::sin(rl_control_->get_time_step()/50.f * 2 * M_PI/4.0);
+                // scaled_action[4] = -0.2*std::sin(rl_control_->get_time_step()/50.f * 2 * M_PI/4.0);
+                // scaled_action[10] = -0.2*std::sin(rl_control_->get_time_step()/50.f * 2 * M_PI/4.0);
+                // scaled_action[5] = -0.2*std::sin(rl_control_->get_time_step()/50.f * 2 * M_PI/4.0);
+                // scaled_action[11] = -0.2*std::sin(rl_control_->get_time_step()/50.f * 2 * M_PI/4.0);
                 // std::cout << scaled_action[4] << std::endl;
             }
-            cmd = motor_manager_->jointCommand(scaled_action, false, false, state);
+            cmd = motor_manager_->jointCommand(scaled_action*0, false, false, state);
         }
         else if (state == FSM_state::default_state_wave)
         {
@@ -106,7 +109,34 @@ class LowlevelManager : public rclcpp::Node
             {
                 scaled_action = rl_control_->inference();
             }
-            cmd = motor_manager_->jointCommand(scaled_action, false, false, state);
+            cmd = motor_manager_->jointCommand(scaled_action*0, false, false, state);
+        }
+        else if (state == FSM_state::default_state_greeting)
+        {
+            rl_control_->set_time_step(0.f);
+            if (decimation_cnt_ > 9)
+            {
+                scaled_action = rl_control_->inference();
+            }
+            cmd = motor_manager_->jointCommand(scaled_action*0, false, false, state);
+        }
+        else if (state == FSM_state::default_xsens_gmr)
+        {
+            rl_control_->set_time_step(0.f);
+            if (decimation_cnt_ > 9)
+            {
+                scaled_action = rl_control_->inference();
+            }
+            cmd = motor_manager_->jointCommand(scaled_action*0, false, false, state);
+        }
+        else if (state == FSM_state::default_vr_rp)
+        {
+            rl_control_->set_time_step(0.f);
+            if (decimation_cnt_ > 9)
+            {
+                scaled_action = rl_control_->inference();
+            }
+            cmd = motor_manager_->jointCommand(scaled_action*0, false, false, state);
         }
         else if (state == FSM_state::rl_run_state)
         {

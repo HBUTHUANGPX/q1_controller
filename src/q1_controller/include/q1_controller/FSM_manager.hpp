@@ -12,9 +12,21 @@ enum class FSM_state : int
     init_state = 0,    // 全身阻尼
     default_state = 1, // 按照yaml文件中的每个电机的default pos做pd控制
     default_state_wave = 2, // 按照yaml文件中的每个电机的default pos做pd控制
+    default_state_greeting = 3, // 按照yaml文件中的每个电机的default pos做pd控制
+    default_xsens_gmr = 4, // 按照yaml文件中的每个电机的default pos做pd控制
+    default_vr_rp = 5, // 按照yaml文件中的每个电机的default pos做pd控制
     rl_run_state = 10, // RL control
 };
-
+struct button_pressed{
+    bool lt_pressed = false;
+    bool rt_pressed = false; // LT轴 > 0.4
+    bool b_pressed = false;  // B按钮 (buttons[1])
+    bool a_pressed = false;  // A按钮 (buttons[0])
+    bool x_pressed = false;  // X按钮 (buttons[3])
+    bool y_pressed = false;  // Y按钮 (buttons[4])
+    bool start_pressed = false;  // start按钮 (buttons[11])
+    bool back_pressed = false;  // back按钮 (buttons[10])
+};
 class FSM_manager
 {
   private:
@@ -33,6 +45,7 @@ class FSM_manager
     bool back_pressed_;  // start按钮 (buttons[11])
     void stateTransitionCallback();
     mutable std::mutex mutex_; // 互斥锁，确保线程安全
+    button_pressed button_pressed_;
 
     rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr state_publisher_;  // 状态发布
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr state_subscriber_;            // 关节状态订阅器
